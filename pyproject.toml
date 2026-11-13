@@ -1,0 +1,31 @@
+[project]
+name = "managebac-data-hub"
+version = "0.1.0"
+description = "Read-only ManageBac data hub: sync, internal API, audit, and admin."
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14",
+  "fastapi>=0.115",
+  "httpx>=0.28",
+  "pymysql>=1.1",
+  "pydantic-settings>=2.6",
+  "sqlalchemy>=2.0.36",
+  "uvicorn>=0.32",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+
+[project.scripts]
+hub = "hub.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
