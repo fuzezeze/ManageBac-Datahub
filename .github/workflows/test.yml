@@ -1,0 +1,57 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_dev
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot_dev"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Create databases and users
+        run: mysql -h 127.0.0.1 -uroot -proot_dev < scripts/init-mysql.sql
+      - name: Install and migrate
+        run: |
+          pip install -e ".[dev]"
+          alembic upgrade head
+        env:
+          CURSOR_SECRET: ci-cursor-secret-value
+          ADMIN_PASSWORD: change-me
+          DATABASE_URL_MIGRATE: mysql+pymysql://hub_migrate:hub_migrate_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_SYNC: mysql+pymysql://hub_sync:hub_sync_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_API: mysql+pymysql://hub_api:hub_api_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_AUTH: mysql+pymysql://hub_auth:hub_auth_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_ADMIN: mysql+pymysql://hub_admin:hub_admin_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_ANALYTICS: mysql+pymysql://hub_analytics:hub_analytics_dev@127.0.0.1:3306/hub_analytics?charset=utf8mb4
+      - name: Test
+        run: pytest
+        env:
+          APP_ENV: test
+          CURSOR_SECRET: ci-cursor-secret-value
+          ADMIN_EMAIL: admin@example.com
+          ADMIN_PASSWORD: change-me
+          MB_AUTH_MODE: fixture
+          SCHOOL_TIMEZONE: UTC
+          DATABASE_URL_MIGRATE: mysql+pymysql://hub_migrate:hub_migrate_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_SYNC: mysql+pymysql://hub_sync:hub_sync_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_API: mysql+pymysql://hub_api:hub_api_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_AUTH: mysql+pymysql://hub_auth:hub_auth_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_ADMIN: mysql+pymysql://hub_admin:hub_admin_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_ANALYTICS: mysql+pymysql://hub_analytics:hub_analytics_dev@127.0.0.1:3306/hub_analytics?charset=utf8mb4
