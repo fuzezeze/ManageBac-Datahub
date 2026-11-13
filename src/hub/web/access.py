@@ -10,7 +10,17 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from hub.config import get_settings
-from hub.models import Alert, ApiClient, ApiCredential, ApiRequestLog, ApiUsageBucket, ClientPermission, ClientRange, QuotaCounter
+from hub.models import (
+    Alert,
+    ApiClient,
+    ApiCredential,
+    ApiRequestLog,
+    ApiUsageBucket,
+    ClientFieldGrant,
+    ClientPermission,
+    ClientRange,
+    QuotaCounter,
+)
 from hub.secrets import hash_secret
 from hub.timeutil import utcnow
 
@@ -43,6 +53,7 @@ class Principal:
     records_per_day: int
     bytes_per_day: int
     ranges: dict[str, set[str]] = field(default_factory=dict)
+    fields: dict[str, set[str]] = field(default_factory=dict)
 
 
 def new_request_id() -> str:
@@ -81,6 +92,9 @@ def authenticate(session: Session, token: str | None) -> Principal | None:
     ranges: dict[str, set[str]] = {}
     for row in session.scalars(select(ClientRange).where(ClientRange.client_id == client.id)).all():
         ranges.setdefault(row.dimension, set()).add(row.mb_id)
+    fields: dict[str, set[str]] = {}
+    for row in session.scalars(select(ClientFieldGrant).where(ClientFieldGrant.client_id == client.id)).all():
+        fields.setdefault(row.resource, set()).add(row.field_name)
     return Principal(
         client_id=client.id,
         credential_id=credential.id,
@@ -90,7 +104,19 @@ def authenticate(session: Session, token: str | None) -> Principal | None:
         records_per_day=client.records_per_day,
         bytes_per_day=client.bytes_per_day,
         ranges=ranges,
+        fields=fields,
     )
+
+
+def project_fields(record: dict, principal: Principal, resource: str) -> dict:
+    """Keep only the fields an admin granted for this read API.
+
+    A client with no grants for the resource still receives the default payload.
+    """
+    allowed = principal.fields.get(resource)
+    if not allowed:
+        return record
+    return {key: value for key, value in record.items() if key in allowed}
 
 
 def clean_limit(value: int | None) -> int:

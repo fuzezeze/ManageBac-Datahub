@@ -22,13 +22,23 @@ h1, h2, p { margin: 0; }
 
 button.primary,
 .toolbar button,
-.card button[type="submit"] {
+.card button[type="submit"],
+form button[type="submit"] {
   background: var(--blue);
   color: white;
   border: 0;
   border-radius: 8px;
   padding: 0.72rem 1rem;
   font-weight: 600;
+}
+button.secondary {
+  background: white;
+  color: var(--blue);
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+  font-weight: 600;
+  margin-right: 0.35rem;
 }
 button.primary:hover,
 .toolbar button:hover,
@@ -225,6 +235,13 @@ main section > p { margin: 0.35rem 0 0.8rem; line-height: 1.45; color: var(--ink
   line-height: 1.4;
 }
 .toolbar { display: flex; gap: 0.55rem; margin: 0.2rem 0 1rem; flex-wrap: wrap; align-items: center; }
+.filter { display: grid; gap: 0.25rem; font-size: 0.8rem; color: var(--muted); }
+.api-fields { display: grid; gap: 0.75rem; margin: 0.4rem 0 1rem; }
+.api-fields fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.8rem 0.85rem; }
+.api-fields legend { padding: 0 0.35rem; font-weight: 650; }
+.checks { display: flex; flex-wrap: wrap; gap: 0.35rem 0.85rem; }
+.check { display: flex; gap: 0.35rem; align-items: center; font-size: 0.88rem; }
+main h2 { margin: 1.4rem 0 0.7rem; font-size: 1.15rem; }
 table {
   width: 100%;
   border-collapse: collapse;

@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Request, Response
 from sqlalchemy import func, select
 
-from hub.catalog import DATASETS, SCOPES
+from hub.catalog import DATASETS, READ_APIS, SCOPES
 from hub.config import get_settings
 from hub.db import session_for
 from hub.jobs import DatasetBlocked, enqueue_job
@@ -16,6 +16,8 @@ from hub.models import (
     ApiClient,
     ApiCredential,
     ApiRequestLog,
+    ApiUsageBucket,
+    ClientFieldGrant,
     ClientPermission,
     ClientRange,
     ConnectionCheck,
@@ -23,13 +25,18 @@ from hub.models import (
     QualityIssue,
     SyncAttempt,
     SyncJob,
+    SyncSchedule,
 )
+from hub.reports import REPORTS, ReportError, list_reports, run_report
+from hub.scheduler import ensure_schedules
 from hub.secrets import hash_password, hash_secret, new_api_key, new_session_token, verify_password
 from hub.timeutil import utcnow
 from hub.web.access import dumps
 
 router = APIRouter(prefix="/admin/api")
 COOKIE = "hub_session"
+SIGNED_IN = {"platform_admin", "data_operator", "auditor", "user"}
+ACCOUNT_ROLES = {"platform_admin": "admin", "user": "user"}
 
 
 def ensure_bootstrap_admin() -> None:
@@ -145,7 +152,7 @@ def login(payload: dict):
 
 @router.post("/logout")
 def logout(request: Request):
-    session, user, error = _require(request, {"platform_admin", "data_operator", "auditor"})
+    session, user, error = _require(request, SIGNED_IN)
     if error is not None:
         return error
     try:
@@ -163,7 +170,7 @@ def logout(request: Request):
 
 @router.get("/me")
 def me(request: Request):
-    session, user, error = _require(request, {"platform_admin", "data_operator", "auditor"})
+    session, user, error = _require(request, SIGNED_IN)
     if error is not None:
         return error
     try:
@@ -312,8 +319,8 @@ def clients(request: Request):
         for client in rows:
             scopes = session.scalars(select(ClientPermission.scope).where(ClientPermission.client_id == client.id)).all()
             credentials = session.scalars(select(ApiCredential).where(ApiCredential.client_id == client.id)).all()
-            data.append({**_client(client), "scopes": list(scopes), "credentials": [_credential(item) for item in credentials]})
-        return _json({"data": data, "available_scopes": list(SCOPES)})
+            data.append({**_client(client), "scopes": list(scopes), "fields": _field_map(session, client.id), "credentials": [_credential(item) for item in credentials]})
+        return _json({"data": data, "available_scopes": list(SCOPES), "apis": _read_api_catalog()})
     finally:
         session.close()
 
@@ -328,7 +335,14 @@ def create_client(payload: dict, request: Request):
         scopes = payload.get("scopes") or []
         if not name:
             return _error(400, "NAME_REQUIRED", "Client name is required")
-        if not isinstance(scopes, list) or not scopes or any(scope not in SCOPES for scope in scopes):
+        if not isinstance(scopes, list) or any(scope not in SCOPES for scope in scopes):
+            return _error(400, "SCOPE_INVALID", "Choose at least one known scope")
+        try:
+            fields = _parse_fields(payload)
+        except ValueError as exc:
+            return _error(400, "FIELD_INVALID", str(exc))
+        scopes = _merge_scopes(scopes, fields)
+        if not scopes:
             return _error(400, "SCOPE_INVALID", "Choose at least one known scope")
         try:
             rate = int(payload["requests_per_minute"])
@@ -350,6 +364,8 @@ def create_client(payload: dict, request: Request):
         session.flush()
         for scope in scopes:
             session.add(ClientPermission(client_id=client.id, scope=scope))
+        if fields:
+            _store_fields(session, client.id, fields)
         for item in payload.get("ranges") or []:
             if item.get("dimension") not in {"year_group", "class", "academic_year"} or not item.get("mb_id"):
                 return _error(400, "RANGE_INVALID", "Ranges need a dimension and mb_id")
@@ -366,7 +382,78 @@ def create_client(payload: dict, request: Request):
         session.add(credential)
         _audit(session, user, "create_client", name, {"client_id": str(client.id), "scopes": scopes, "public_id": public_id})
         session.commit()
-        return _json({"client": _client(client), "scopes": scopes, "credential": {**_credential(credential), "secret": secret}})
+        return _json({"client": _client(client), "scopes": scopes, "fields": fields or {}, "credential": {**_credential(credential), "secret": secret}})
+    finally:
+        session.close()
+
+
+@router.patch("/clients/{client_id}")
+def update_client(client_id: UUID, payload: dict, request: Request):
+    session, user, error = _require(request, {"platform_admin"})
+    if error is not None:
+        return error
+    try:
+        client = session.get(ApiClient, client_id)
+        if client is None:
+            return _error(404, "NOT_FOUND", "Client was not found")
+        if "name" in payload:
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                return _error(400, "NAME_REQUIRED", "Client name is required")
+            client.name = name
+        if "enabled" in payload:
+            client.enabled = bool(payload.get("enabled"))
+        for key in ("requests_per_minute", "records_per_day", "bytes_per_day"):
+            if key in payload:
+                try:
+                    value = int(payload[key])
+                except (TypeError, ValueError):
+                    return _error(400, "QUOTA_REQUIRED", "Quotas must be positive integers")
+                if value < 1:
+                    return _error(400, "QUOTA_REQUIRED", "Quotas must be positive integers")
+                setattr(client, key, value)
+        fields = None
+        if "fields" in payload:
+            try:
+                fields = _parse_fields(payload)
+            except ValueError as exc:
+                return _error(400, "FIELD_INVALID", str(exc))
+            _store_fields(session, client.id, fields)
+        if "scopes" in payload or fields is not None:
+            scopes = payload.get("scopes") if "scopes" in payload else []
+            if not isinstance(scopes, list) or any(scope not in SCOPES for scope in scopes):
+                return _error(400, "SCOPE_INVALID", "Choose at least one known scope")
+            scopes = _merge_scopes(scopes, fields if fields is not None else _field_map(session, client.id))
+            if not scopes:
+                return _error(400, "SCOPE_INVALID", "Choose at least one known scope")
+            session.query(ClientPermission).filter(ClientPermission.client_id == client.id).delete(synchronize_session=False)
+            for scope in scopes:
+                session.add(ClientPermission(client_id=client.id, scope=scope))
+        _audit(session, user, "update_client", str(client.id), {"name": client.name})
+        session.commit()
+        scopes = session.scalars(select(ClientPermission.scope).where(ClientPermission.client_id == client.id)).all()
+        return _json({"client": _client(client), "scopes": list(scopes), "fields": _field_map(session, client.id)})
+    finally:
+        session.close()
+
+
+@router.delete("/clients/{client_id}")
+def delete_client(client_id: UUID, request: Request):
+    session, user, error = _require(request, {"platform_admin"})
+    if error is not None:
+        return error
+    try:
+        client = session.get(ApiClient, client_id)
+        if client is None:
+            return _error(404, "NOT_FOUND", "Client was not found")
+        session.query(ClientFieldGrant).filter(ClientFieldGrant.client_id == client.id).delete(synchronize_session=False)
+        session.query(ClientPermission).filter(ClientPermission.client_id == client.id).delete(synchronize_session=False)
+        session.query(ClientRange).filter(ClientRange.client_id == client.id).delete(synchronize_session=False)
+        session.query(ApiCredential).filter(ApiCredential.client_id == client.id).delete(synchronize_session=False)
+        _audit(session, user, "delete_client", client.name, {"client_id": str(client.id)})
+        session.delete(client)
+        session.commit()
+        return _json({"ok": True})
     finally:
         session.close()
 
@@ -508,9 +595,248 @@ def ack_alert(alert_id: UUID, request: Request):
         session.close()
 
 
+@router.get("/users")
+def users(request: Request):
+    session, _user, error = _require(request, {"platform_admin"})
+    if error is not None:
+        return error
+    try:
+        rows = session.scalars(select(AdminUser).order_by(AdminUser.created_at)).all()
+        return _json({"data": [_account(row) for row in rows], "roles": ["admin", "user"]})
+    finally:
+        session.close()
+
+
+@router.post("/users")
+def create_user(payload: dict, request: Request):
+    session, user, error = _require(request, {"platform_admin"})
+    if error is not None:
+        return error
+    try:
+        email = str(payload.get("email") or "").strip().lower()
+        password = str(payload.get("password") or "")
+        role = _account_role(payload.get("role"))
+        if not email or "@" not in email:
+            return _error(400, "EMAIL_REQUIRED", "A valid email is required")
+        if len(password) < 8:
+            return _error(400, "PASSWORD_REQUIRED", "Password must be at least 8 characters")
+        if role is None:
+            return _error(400, "ROLE_INVALID", "Role must be admin or user")
+        if session.scalars(select(AdminUser).where(AdminUser.email == email)).one_or_none() is not None:
+            return _error(409, "EMAIL_TAKEN", "That email is already signed in to this hub")
+        account = AdminUser(email=email, password_hash=hash_password(password), role=role, disabled=False, created_at=utcnow())
+        session.add(account)
+        session.flush()
+        _audit(session, user, "create_user", email, {"role": ACCOUNT_ROLES[role]})
+        session.commit()
+        return _json({"user": _account(account)})
+    finally:
+        session.close()
+
+
+@router.patch("/users/{user_id}")
+def update_user(user_id: UUID, payload: dict, request: Request):
+    session, actor, error = _require(request, {"platform_admin"})
+    if error is not None:
+        return error
+    try:
+        account = session.get(AdminUser, user_id)
+        if account is None:
+            return _error(404, "NOT_FOUND", "User was not found")
+        if "role" in payload:
+            role = _account_role(payload.get("role"))
+            if role is None:
+                return _error(400, "ROLE_INVALID", "Role must be admin or user")
+            if account.id == actor.id and role != "platform_admin":
+                return _error(400, "ROLE_INVALID", "You cannot remove your own admin access")
+            account.role = role
+        if "disabled" in payload:
+            disabled = bool(payload.get("disabled"))
+            if account.id == actor.id and disabled:
+                return _error(400, "ROLE_INVALID", "You cannot disable your own account")
+            account.disabled = disabled
+        if payload.get("password"):
+            password = str(payload["password"])
+            if len(password) < 8:
+                return _error(400, "PASSWORD_REQUIRED", "Password must be at least 8 characters")
+            account.password_hash = hash_password(password)
+        _audit(session, actor, "update_user", account.email, {"role": ACCOUNT_ROLES.get(account.role, account.role), "disabled": account.disabled})
+        session.commit()
+        return _json({"user": _account(account)})
+    finally:
+        session.close()
+
+
+@router.get("/schedules")
+def schedules(request: Request):
+    session, _user, error = _require(request, {"platform_admin", "data_operator", "auditor"})
+    if error is not None:
+        return error
+    try:
+        ensure_schedules(session)
+        session.commit()
+        rows = {row.dataset: row for row in session.scalars(select(SyncSchedule)).all()}
+        data = []
+        for spec in DATASETS.values():
+            if not spec.scheduled:
+                continue
+            row = rows.get(spec.name)
+            data.append(
+                {
+                    "dataset": spec.name,
+                    "blocked": spec.blocked,
+                    "supports_dates": spec.supports_dates,
+                    "cadence": None if row is None else row.cadence,
+                    "hour": None if row is None else row.hour,
+                    "minute": 0 if row is None else row.minute,
+                    "interval_minutes": None if row is None else row.interval_minutes,
+                    "enabled": True if row is None else row.enabled,
+                }
+            )
+        return _json({"data": data})
+    finally:
+        session.close()
+
+
+@router.patch("/schedules/{dataset}")
+def update_schedule(dataset: str, payload: dict, request: Request):
+    session, user, error = _require(request, {"platform_admin", "data_operator"})
+    if error is not None:
+        return error
+    try:
+        spec = DATASETS.get(dataset)
+        if spec is None or not spec.scheduled:
+            return _error(404, "DATASET_UNKNOWN", "Unknown dataset")
+        ensure_schedules(session)
+        row = session.get(SyncSchedule, dataset)
+        if row is None:
+            return _error(404, "DATASET_UNKNOWN", "Unknown dataset")
+        cadence = str(payload.get("cadence") or row.cadence)
+        if cadence not in {"daily", "hourly", "interval"}:
+            return _error(400, "CADENCE_INVALID", "Cadence must be daily, hourly, or interval")
+        try:
+            minute = int(payload.get("minute", row.minute))
+            hour = payload.get("hour", row.hour)
+            hour = None if hour in {None, ""} else int(hour)
+            interval = payload.get("interval_minutes", row.interval_minutes)
+            interval = None if interval in {None, ""} else int(interval)
+        except (TypeError, ValueError):
+            return _error(400, "CADENCE_INVALID", "Hour, minute, and interval must be numbers")
+        if not 0 <= minute <= 59:
+            return _error(400, "CADENCE_INVALID", "Minute must be between 0 and 59")
+        if cadence == "daily" and (hour is None or not 0 <= hour <= 23):
+            return _error(400, "CADENCE_INVALID", "A daily sync needs an hour from 0 to 23")
+        if cadence == "interval" and (interval is None or not 5 <= interval <= 1440):
+            return _error(400, "CADENCE_INVALID", "Interval must be between 5 and 1440 minutes")
+        row.cadence = cadence
+        row.hour = hour if cadence == "daily" else None
+        row.minute = minute
+        row.interval_minutes = interval if cadence == "interval" else None
+        if "enabled" in payload:
+            row.enabled = bool(payload.get("enabled"))
+        _audit(session, user, "update_schedule", dataset, {"cadence": row.cadence, "hour": row.hour, "minute": row.minute, "interval_minutes": row.interval_minutes, "enabled": row.enabled})
+        session.commit()
+        return _json({"dataset": dataset, "cadence": row.cadence, "hour": row.hour, "minute": row.minute, "interval_minutes": row.interval_minutes, "enabled": row.enabled})
+    finally:
+        session.close()
+
+
+@router.get("/usage")
+def usage(request: Request):
+    session, _user, error = _require(request, {"platform_admin", "auditor"})
+    if error is not None:
+        return error
+    try:
+        clients = {row.id: row.name for row in session.scalars(select(ApiClient)).all()}
+        grouped = session.execute(
+            select(
+                ApiUsageBucket.route_template,
+                func.coalesce(func.sum(ApiUsageBucket.request_count), 0),
+                func.coalesce(func.sum(ApiUsageBucket.success_count), 0),
+                func.coalesce(func.sum(ApiUsageBucket.error_count), 0),
+                func.coalesce(func.sum(ApiUsageBucket.record_count), 0),
+                func.coalesce(func.sum(ApiUsageBucket.byte_count), 0),
+                func.max(ApiUsageBucket.bucket_start),
+            )
+            .where(ApiUsageBucket.bucket_size == "day")
+            .group_by(ApiUsageBucket.route_template)
+            .order_by(ApiUsageBucket.route_template)
+        ).all()
+        detailed = session.execute(
+            select(
+                ApiUsageBucket.client_id,
+                ApiUsageBucket.route_template,
+                func.coalesce(func.sum(ApiUsageBucket.request_count), 0),
+                func.coalesce(func.sum(ApiUsageBucket.success_count), 0),
+                func.coalesce(func.sum(ApiUsageBucket.error_count), 0),
+                func.coalesce(func.sum(ApiUsageBucket.record_count), 0),
+                func.max(ApiUsageBucket.bucket_start),
+            )
+            .where(ApiUsageBucket.bucket_size == "day")
+            .group_by(ApiUsageBucket.client_id, ApiUsageBucket.route_template)
+            .order_by(ApiUsageBucket.route_template)
+        ).all()
+        return _json(
+            {
+                "by_route": [
+                    {
+                        "route": row[0],
+                        "request_count": int(row[1]),
+                        "success_count": int(row[2]),
+                        "error_count": int(row[3]),
+                        "record_count": int(row[4]),
+                        "byte_count": int(row[5]),
+                        "last_bucket": None if row[6] is None else row[6].isoformat(),
+                    }
+                    for row in grouped
+                ],
+                "by_client": [
+                    {
+                        "client_id": str(row[0]),
+                        "client_name": clients.get(row[0], ""),
+                        "route": row[1],
+                        "request_count": int(row[2]),
+                        "success_count": int(row[3]),
+                        "error_count": int(row[4]),
+                        "record_count": int(row[5]),
+                        "last_bucket": None if row[6] is None else row[6].isoformat(),
+                    }
+                    for row in detailed
+                ],
+            }
+        )
+    finally:
+        session.close()
+
+
+@router.get("/analytics/reports")
+def analytics_reports(request: Request):
+    session, _user, error = _require(request, SIGNED_IN)
+    if error is not None:
+        return error
+    session.close()
+    return _json({"reports": list_reports()})
+
+
+@router.get("/analytics/reports/{report_key}")
+def analytics_report(report_key: str, request: Request):
+    session, _user, error = _require(request, SIGNED_IN)
+    if error is not None:
+        return error
+    try:
+        if report_key not in REPORTS:
+            return _error(404, "REPORT_UNKNOWN", "Unknown report")
+        try:
+            return _json(run_report(session, report_key, dict(request.query_params)))
+        except ReportError as exc:
+            return _error(400, "REPORT_FILTER_INVALID", str(exc))
+    finally:
+        session.close()
+
+
 @router.get("/analytics/summary")
 def analytics_summary(request: Request):
-    session, _user, error = _require(request, {"platform_admin", "data_operator", "auditor"})
+    session, _user, error = _require(request, SIGNED_IN)
     if error is not None:
         return error
     try:
@@ -627,3 +953,82 @@ def _credential(credential: ApiCredential) -> dict:
         "expires_at": credential.expires_at.isoformat(),
         "revoked_at": None if credential.revoked_at is None else credential.revoked_at.isoformat(),
     }
+
+
+def _account_role(value) -> str | None:
+    role = str(value or "").strip().lower()
+    if role in {"admin", "platform_admin"}:
+        return "platform_admin"
+    if role == "user":
+        return "user"
+    return None
+
+
+def _account(account: AdminUser) -> dict:
+    return {
+        "id": str(account.id),
+        "email": account.email,
+        "role": ACCOUNT_ROLES.get(account.role, account.role),
+        "disabled": account.disabled,
+    }
+
+
+def _read_api_catalog() -> list[dict]:
+    return [
+        {"name": spec.name, "title": spec.title, "route": spec.route, "scope": spec.scope, "fields": list(spec.fields)}
+        for spec in READ_APIS.values()
+    ]
+
+
+def _parse_fields(payload: dict) -> dict[str, list[str]] | None:
+    if "fields" not in payload or payload.get("fields") is None:
+        return None
+    raw = payload.get("fields")
+    if not isinstance(raw, dict):
+        raise ValueError("fields must be an object of API name to field names")
+    cleaned: dict[str, list[str]] = {}
+    for resource, names in raw.items():
+        spec = READ_APIS.get(str(resource))
+        if spec is None:
+            raise ValueError(f"Unknown API {resource}")
+        if not isinstance(names, list):
+            raise ValueError(f"{resource} fields must be a list")
+        chosen = []
+        for name in names:
+            field_name = str(name)
+            if field_name not in spec.fields:
+                raise ValueError(f"Unknown field {field_name} on {resource}")
+            if field_name not in chosen:
+                chosen.append(field_name)
+        if chosen:
+            cleaned[spec.name] = chosen
+    return cleaned
+
+
+def _merge_scopes(scopes: list, fields: dict[str, list[str]] | None) -> list[str]:
+    merged = [scope for scope in scopes if scope in SCOPES]
+    if fields:
+        for resource, names in fields.items():
+            spec = READ_APIS[resource]
+            if spec.scope not in merged:
+                merged.append(spec.scope)
+            if "email" in names and resource == "students" and "students:contact" not in merged:
+                merged.append("students:contact")
+            if "email" in names and resource == "teachers" and "teachers:contact" not in merged:
+                merged.append("teachers:contact")
+    return merged
+
+
+def _store_fields(session, client_id, fields: dict[str, list[str]]) -> None:
+    session.query(ClientFieldGrant).filter(ClientFieldGrant.client_id == client_id).delete(synchronize_session=False)
+    for resource, names in fields.items():
+        for name in names:
+            session.add(ClientFieldGrant(client_id=client_id, resource=resource, field_name=name))
+
+
+def _field_map(session, client_id) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    rows = session.scalars(select(ClientFieldGrant).where(ClientFieldGrant.client_id == client_id).order_by(ClientFieldGrant.field_name)).all()
+    for row in rows:
+        grouped.setdefault(row.resource, []).append(row.field_name)
+    return grouped

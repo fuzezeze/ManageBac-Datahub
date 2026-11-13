@@ -272,6 +272,87 @@ def test_attendance_and_behavior_notes_are_served(synced):
     assert "email" not in body["data"][0]
 
 
+def test_user_can_open_live_reports_only(synced):
+    app = create_app()
+    admin = TestClient(app)
+    login = admin.post("/admin/api/login", json={"email": "admin@example.com", "password": "change-me"})
+    csrf = login.json()["csrf_token"]
+    created = admin.post(
+        "/admin/api/users",
+        json={"email": "viewer@example.com", "password": "change-me-2", "role": "user"},
+        headers={"x-csrf-token": csrf},
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["user"]["role"] == "user"
+    viewer = TestClient(app)
+    signed = viewer.post("/admin/api/login", json={"email": "viewer@example.com", "password": "change-me-2"})
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["role"] == "user"
+    assert viewer.get("/admin/api/overview").status_code == 403
+    assert viewer.get("/admin/api/clients").status_code == 403
+    reports = viewer.get("/admin/api/analytics/reports")
+    assert reports.status_code == 200, reports.text
+    assert {item["key"] for item in reports.json()["reports"]} == {"student_attendance", "teacher_assignments"}
+    attendance = viewer.get("/admin/api/analytics/reports/student_attendance?date_from=2026-11-10&date_to=2026-11-10&student=Bob")
+    assert attendance.status_code == 200, attendance.text
+    assert "left" in {row["note"] for row in attendance.json()["data"]}
+    teaching = viewer.get("/admin/api/analytics/reports/teacher_assignments?subject=English")
+    assert teaching.status_code == 200, teaching.text
+    assert any(row["teacher"] == "Ann Lee" and row["subject"] == "English" and row["course"] == "English A" for row in teaching.json()["data"])
+
+
+def test_field_grants_hide_unselected_fields_and_usage_is_counted(synced):
+    app = create_app()
+    admin = TestClient(app)
+    login = admin.post("/admin/api/login", json={"email": "admin@example.com", "password": "change-me"})
+    csrf = login.json()["csrf_token"]
+    created = admin.post(
+        "/admin/api/clients",
+        json={
+            "name": "status-only",
+            "scopes": ["attendance:read"],
+            "fields": {"attendance": ["student_mb_id", "status"]},
+            "requests_per_minute": 30,
+            "records_per_day": 100,
+            "bytes_per_day": 100000,
+        },
+        headers={"x-csrf-token": csrf},
+    )
+    assert created.status_code == 200, created.text
+    secret = created.json()["credential"]["secret"]
+    attendance = admin.get(
+        "/api/v1/attendance?date_from=2026-11-10&date_to=2026-11-10",
+        headers={"Authorization": f"Bearer {secret}"},
+    )
+    assert attendance.status_code == 200, attendance.text
+    assert attendance.json()["data"]
+    assert all(set(item) == {"student_mb_id", "status"} for item in attendance.json()["data"])
+    usage = admin.get("/admin/api/usage")
+    assert usage.status_code == 200, usage.text
+    routes = {row["route"]: row["request_count"] for row in usage.json()["by_route"]}
+    assert routes.get("/api/v1/attendance", 0) >= 1
+    removed = admin.delete(f"/admin/api/clients/{created.json()['client']['id']}", headers={"x-csrf-token": csrf})
+    assert removed.status_code == 200, removed.text
+
+
+def test_admin_can_set_dataset_sync_frequency(synced):
+    app = create_app()
+    admin = TestClient(app)
+    login = admin.post("/admin/api/login", json={"email": "admin@example.com", "password": "change-me"})
+    csrf = login.json()["csrf_token"]
+    updated = admin.patch(
+        "/admin/api/schedules/behavior_notes",
+        json={"cadence": "hourly", "minute": 20, "enabled": True},
+        headers={"x-csrf-token": csrf},
+    )
+    assert updated.status_code == 200, updated.text
+    listed = admin.get("/admin/api/schedules")
+    row = next(item for item in listed.json()["data"] if item["dataset"] == "behavior_notes")
+    assert row["cadence"] == "hourly"
+    assert row["minute"] == 20
+    assert row["enabled"] is True
+
+
 def test_cursor_cannot_be_reused_for_a_different_filter(synced):
     app = create_app()
     client = TestClient(app)
