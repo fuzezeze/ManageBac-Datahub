@@ -10,7 +10,7 @@ from hub.worker import run_once, worker_identity
 logger = logging.getLogger(__name__)
 
 
-def drain(limit: int = 40) -> None:
+def drain(limit: int = 50) -> None:
     identity = worker_identity()
     idle_passes = 0
     for _ in range(limit):

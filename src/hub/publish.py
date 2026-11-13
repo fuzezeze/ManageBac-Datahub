@@ -11,6 +11,7 @@ from hub.models import (
     ApiResponse,
     AttendanceRecord,
     AttendanceRevision,
+    BehaviorNote,
     ClassGroup,
     CoverageWindow,
     DatasetSyncState,
@@ -29,6 +30,7 @@ from hub.models import (
 )
 from hub.normalize import (
     AttendanceDraft,
+    BehaviorNoteDraft,
     derive_person_status,
     parse_date,
     parse_timestamp,
@@ -628,6 +630,72 @@ def replace_advisors(session: Session, *, school_id: str, year_group_mb_id: str,
                 sync_job_id=job_id,
             )
         )
+
+
+def _resolve_behavior_student_mb_id(session: Session, *, school_id: str, student_id: str | None) -> str | None:
+    if not student_id:
+        return None
+    by_mb = session.scalars(select(Student).where(Student.school_id == school_id, Student.mb_id == student_id)).one_or_none()
+    if by_mb is not None:
+        return by_mb.mb_id
+    by_school_id = session.scalars(
+        select(Student).where(Student.school_id == school_id, Student.student_id == student_id)
+    ).one_or_none()
+    if by_school_id is not None:
+        return by_school_id.mb_id
+    return None
+
+
+def upsert_behavior_note(session: Session, draft: BehaviorNoteDraft, *, school_id: str, job_id: UUID, now: datetime) -> str:
+    student_mb_id = _resolve_behavior_student_mb_id(session, school_id=school_id, student_id=draft.student_id)
+    row = session.scalars(
+        select(BehaviorNote).where(
+            BehaviorNote.school_id == school_id,
+            BehaviorNote.source_system == "managebac",
+            BehaviorNote.mb_id == draft.mb_id,
+        )
+    ).one_or_none()
+    values = {
+        "student_mb_id": student_mb_id,
+        "student_id": draft.student_id,
+        "email": draft.email,
+        "first_name": draft.first_name,
+        "last_name": draft.last_name,
+        "grade": draft.grade,
+        "incident_time": draft.incident_time,
+        "behavior_type": draft.behavior_type,
+        "notes": draft.notes,
+        "next_step": draft.next_step,
+        "next_step_date": draft.next_step_date,
+        "reported_by": draft.reported_by,
+        "homeroom_advisor": draft.homeroom_advisor,
+        "author_id": draft.author_id,
+        "visible_to_parents": draft.visible_to_parents,
+        "visible_to_students": draft.visible_to_students,
+        "source_created_at": draft.source_created_at,
+        "source_updated_at": draft.source_updated_at,
+        "last_seen_at": now,
+        "sync_job_id": job_id,
+    }
+    if row is None:
+        session.add(
+            BehaviorNote(
+                school_id=school_id,
+                source_system="managebac",
+                mb_id=draft.mb_id,
+                ingested_at=now,
+                normalized_updated_at=now,
+                **values,
+            )
+        )
+        return "created"
+    same = all(getattr(row, key) == value for key, value in values.items() if key not in {"last_seen_at", "sync_job_id"})
+    for key, value in values.items():
+        setattr(row, key, value)
+    if same:
+        return "unchanged"
+    row.normalized_updated_at = now
+    return "updated"
 
 
 def apply_attendance(session: Session, draft: AttendanceDraft, *, school_id: str, job_id: UUID, now: datetime) -> str:

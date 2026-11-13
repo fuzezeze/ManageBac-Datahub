@@ -20,7 +20,7 @@ def _meta(count: int, page: int = 1) -> dict:
 def resolve_fixture(path: str, params: dict) -> dict:
     page = int(params.get("page") or 1)
     if path.endswith("/auth/permissions"):
-        return {"permissions": ["students", "teachers", "classes", "year_groups", "attendance"]}
+        return {"permissions": ["students", "teachers", "classes", "year_groups", "attendance", "behavior"]}
     if path.endswith("/school/academic-years"):
         return {
             "academic_years": {
@@ -202,6 +202,50 @@ def resolve_fixture(path: str, params: dict) -> dict:
                 {"id": 3, "attendance": {"1": {"status": "Left-early", "category": "Other", "note": "clinic"}}},
             ]
         }
+    if path.endswith("/behavior/notes"):
+        notes = [
+            {
+                "id": 9001,
+                "student_id": "S001",
+                "email": "ada.chan@example.edu",
+                "first_name": "Ada",
+                "last_name": "Chan",
+                "grade": "Grade 10",
+                "incident_time": "2026-11-10T09:15:00+08:00",
+                "behavior_type": "Positive",
+                "notes": "Helped a classmate during lab.",
+                "next_step": "Share with advisor",
+                "next_step_date": "2026-11-12",
+                "reported_by": "Ann Lee",
+                "homeroom_advisor": "Kim Advisor",
+                "author_id": 11,
+                "visible_to_parents": True,
+                "visible_to_students": False,
+                "created_at": "2026-11-10T09:20:00+08:00",
+                "updated_at": "2026-11-10T09:20:00+08:00",
+            },
+            {
+                "id": 9002,
+                "student_id": "1",
+                "email": "ada.chan@example.edu",
+                "first_name": "Ada",
+                "last_name": "Chan",
+                "grade": "Grade 10",
+                "incident_time": "2026-11-11T14:00:00+08:00",
+                "behavior_type": "Late to class",
+                "notes": "Arrived after the second bell.",
+                "next_step": None,
+                "next_step_date": None,
+                "reported_by": "Ben Ng",
+                "homeroom_advisor": "Kim Advisor",
+                "author_id": 12,
+                "visible_to_parents": False,
+                "visible_to_students": False,
+                "created_at": "2026-11-11T14:05:00+08:00",
+                "updated_at": "2026-11-11T14:05:00+08:00",
+            },
+        ]
+        return {"behavior_notes": notes if page == 1 else [], "meta": _meta(len(notes), page)}
     if "/homeroom/attendance/date/" in path:
         day = path.rsplit("/", 1)[-1]
         if day != DEMO_ATTENDANCE_DATE:

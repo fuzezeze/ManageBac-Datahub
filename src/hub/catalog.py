@@ -45,6 +45,7 @@ DATASETS: dict[str, DatasetSpec] = {
             hour=None,
             minute=15,
         ),
+        DatasetSpec("behavior_notes", 55, depends_on=("students",)),
         DatasetSpec("courses", 70, blocked=True, block_reason=COURSE_BLOCK_REASON, scheduled=False),
     )
 }
@@ -60,6 +61,7 @@ SCOPES = (
     "teaching-assignments:read",
     "year-groups:read",
     "attendance:read",
+    "behavior:read",
 )
 
 SCOPE_DATASETS = {
@@ -73,4 +75,5 @@ SCOPE_DATASETS = {
     "teaching-assignments:read": ("teacher_classes",),
     "year-groups:read": ("year_groups", "student_year_groups"),
     "attendance:read": ("attendance_class", "attendance_homeroom"),
+    "behavior:read": ("behavior_notes",),
 }

@@ -1,3 +1,11 @@
+x-hub-env: &hub-env
+  DATABASE_URL_MIGRATE: mysql+pymysql://hub_migrate:hub_migrate_dev@mysql:3306/hub_ops?charset=utf8mb4
+  DATABASE_URL_SYNC: mysql+pymysql://hub_sync:hub_sync_dev@mysql:3306/hub_ops?charset=utf8mb4
+  DATABASE_URL_API: mysql+pymysql://hub_api:hub_api_dev@mysql:3306/hub_ops?charset=utf8mb4
+  DATABASE_URL_AUTH: mysql+pymysql://hub_auth:hub_auth_dev@mysql:3306/hub_ops?charset=utf8mb4
+  DATABASE_URL_ADMIN: mysql+pymysql://hub_admin:hub_admin_dev@mysql:3306/hub_ops?charset=utf8mb4
+  DATABASE_URL_ANALYTICS: mysql+pymysql://hub_analytics:hub_analytics_dev@mysql:3306/hub_analytics?charset=utf8mb4
+
 services:
   mysql:
     image: mysql:8.0
@@ -15,31 +23,94 @@ services:
       timeout: 5s
       retries: 20
 
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    environment:
+      <<: *hub-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  seed:
+    build: .
+    command: ["python", "-m", "hub", "seed"]
+    env_file: .env
+    environment:
+      <<: *hub-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   api:
     build: .
     command: ["uvicorn", "hub.web.app:app", "--host", "0.0.0.0", "--port", "8000"]
     env_file: .env
+    environment:
+      <<: *hub-env
     depends_on:
       mysql:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   worker:
     build: .
     command: ["python", "-m", "hub", "worker"]
     env_file: .env
+    environment:
+      <<: *hub-env
     depends_on:
       mysql:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
 
   scheduler:
     build: .
     command: ["python", "-m", "hub", "scheduler"]
     env_file: .env
+    environment:
+      <<: *hub-env
     depends_on:
       mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
+
+  admin:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./apps/admin:/app
+      - admin-node-modules:/app/node_modules
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0 --port 5173"
+    environment:
+      API_PROXY: http://api:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
         condition: service_healthy
 
 volumes:
   mysql-data:
+  admin-node-modules:

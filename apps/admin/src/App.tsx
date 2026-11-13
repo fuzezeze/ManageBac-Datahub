@@ -183,7 +183,7 @@ function JobsPage({ onError }: { onError: (message: string) => void }) {
       <h1>Sync jobs</h1>
       <div className="toolbar">
         <select value={dataset} onChange={(event) => setDataset(event.target.value)}>
-          {["students", "teachers", "classes", "attendance_class"].map((item) => <option key={item}>{item}</option>)}
+          {["students", "teachers", "classes", "attendance_class", "behavior_notes"].map((item) => <option key={item}>{item}</option>)}
         </select>
         <button onClick={sync}>Queue sync</button>
       </div>
