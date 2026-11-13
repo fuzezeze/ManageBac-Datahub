@@ -31,11 +31,22 @@ export function App() {
   return (
     <div className="shell">
       <nav>
-        <strong>Data Hub</strong>
-        <p>{session.email}</p>
-        {(["overview", "jobs", "clients", "analytics"] as Page[]).map((item) => (
+        <div className="nav-brand">
+          <img src="/ycis-mark.png" alt="YCIS" width={40} height={40} />
+          <div>
+            <strong>ManageBac Data Hub</strong>
+            <span>YCIS HONG KONG</span>
+          </div>
+        </div>
+        <p className="nav-user">{session.email}</p>
+        {([
+          ["overview", "Overview"],
+          ["jobs", "Jobs"],
+          ["clients", "Clients"],
+          ["analytics", "Analytics"],
+        ] as Array<[Page, string]>).map(([item, label]) => (
           <button key={item} className={page === item ? "active" : ""} onClick={() => setPage(item)}>
-            {item}
+            {label}
           </button>
         ))}
       </nav>
@@ -70,13 +81,47 @@ function Login({ onSuccess }: { onSuccess: (session: Session) => void }) {
   }
 
   return (
-    <form className="login" onSubmit={submit}>
-      <h1>ManageBac Data Hub</h1>
-      <label>Email<br /><input value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-      <label>Password<br /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-      {error && <p className="error">{error}</p>}
-      <button type="submit">Sign in</button>
-    </form>
+    <div className="signin">
+      <section className="brand-panel" aria-label="YCIS Hong Kong">
+        <div className="brand-copy">
+          <div className="lockup">
+            <img src="/ycis-mark.png" alt="" width={76} height={76} />
+            <div>
+              <div className="ycis">YCIS</div>
+              <div className="place">HONG KONG</div>
+            </div>
+          </div>
+          <h1>ManageBac Data Hub</h1>
+          <p className="lede">Read-only school data</p>
+        </div>
+      </section>
+      <div className="signin-stage">
+        <form className="card" onSubmit={submit}>
+          <h1>Sign in</h1>
+          <p className="card-note">Use your admin email and password for this workspace.</p>
+          <label>
+            Email
+            <input
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label>
+            Password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          {error && <p className="error">{error}</p>}
+          <button type="submit">Sign in</button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -136,7 +181,7 @@ function JobsPage({ onError }: { onError: (message: string) => void }) {
   return (
     <section>
       <h1>Sync jobs</h1>
-      <div className="row">
+      <div className="toolbar">
         <select value={dataset} onChange={(event) => setDataset(event.target.value)}>
           {["students", "teachers", "classes", "attendance_class"].map((item) => <option key={item}>{item}</option>)}
         </select>
@@ -183,7 +228,7 @@ function ClientsPage({ role, onError }: { role: string; onError: (message: strin
   return (
     <section>
       <h1>API clients</h1>
-      <button onClick={createClient}>Create a read client</button>
+      <button className="primary" onClick={createClient}>Create a read client</button>
       {secret && <p>Copy this key now. It is not shown again: <code>{secret}</code></p>}
       <table>
         <thead><tr><th>Name</th><th>Enabled</th></tr></thead>
