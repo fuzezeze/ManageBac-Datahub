@@ -32,9 +32,14 @@ jobs:
           pip install -e ".[dev]"
           alembic upgrade head
         env:
-          DATABASE_URL_MIGRATE: mysql+pymysql://hub_migrate:hub_migrate_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
           CURSOR_SECRET: ci-cursor-secret-value
           ADMIN_PASSWORD: change-me
+          DATABASE_URL_MIGRATE: mysql+pymysql://hub_migrate:hub_migrate_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_SYNC: mysql+pymysql://hub_sync:hub_sync_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_API: mysql+pymysql://hub_api:hub_api_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_AUTH: mysql+pymysql://hub_auth:hub_auth_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_ADMIN: mysql+pymysql://hub_admin:hub_admin_dev@127.0.0.1:3306/hub_ops?charset=utf8mb4
+          DATABASE_URL_ANALYTICS: mysql+pymysql://hub_analytics:hub_analytics_dev@127.0.0.1:3306/hub_analytics?charset=utf8mb4
       - name: Test
         run: pytest
         env:
