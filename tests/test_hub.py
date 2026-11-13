@@ -66,8 +66,17 @@ def test_fixture_sync_publishes_people_and_attendance(synced):
         ada = session.scalars(select(Student).where(Student.mb_id == "1")).one()
         assert ada.student_id == "S001"
         assert ada.email == "ada.chan@example.edu"
+        assert ada.grade == "Grade 10"
+        assert ada.standard_status == "enrolled"
+        withdrawn = session.scalars(select(Student).where(Student.mb_id == "2")).one()
+        assert withdrawn.standard_status == "withdrawn"
+        assert withdrawn.withdrawn_on == date(2025, 2, 18)
+        graduated = session.scalars(select(Student).where(Student.mb_id == "3")).one()
+        assert graduated.standard_status == "graduated"
+        assert graduated.graduated_on == date(2026, 7, 15)
         classes = session.scalars(select(StudentClass).where(StudentClass.student_mb_id == "1", StudentClass.member_status == "active")).all()
         assert {row.class_mb_id for row in classes} == {"801", "802"}
+        assert {row.class_mb_id: row.level for row in classes} == {"801": "SL", "802": "SL"}
         periods = session.scalars(
             select(AttendanceRecord).where(
                 AttendanceRecord.student_mb_id == "1",
@@ -80,8 +89,21 @@ def test_fixture_sync_publishes_people_and_attendance(synced):
         unknown = session.scalars(select(AttendanceRecord).where(AttendanceRecord.source_status == "Left-early")).one()
         assert unknown.standard_status == "unknown"
         advisors = session.scalars(select(YearGroupAdvisor)).all()
-        assert ("99", "homeroom") in {(row.teacher_mb_id, row.advisor_role) for row in advisors}
+        advisor_pairs = {(row.teacher_mb_id, row.advisor_role) for row in advisors}
+        assert ("99", "homeroom") in advisor_pairs
+        assert {("98", "EE"), ("98", "TOK")} <= advisor_pairs
         assert session.scalar(select(func.count()).select_from(TeacherClass).where(TeacherClass.teacher_mb_id == "99")) == 0
+        homeroom = session.scalars(
+            select(AttendanceRecord).where(
+                AttendanceRecord.attendance_type == "homeroom",
+                AttendanceRecord.business_date == date(2026, 11, 10),
+            )
+        ).all()
+        assert {(row.student_mb_id, row.source_status, row.standard_status, row.category) for row in homeroom} == {
+            ("1", "Present", "present", None),
+            ("2", "Early Leave", "early_leave", None),
+            ("3", "Sick Leave(Excused)", "excused", None),
+        }
     finally:
         session.close()
     analytics = session_for("analytics")

@@ -59,11 +59,14 @@ def resolve_fixture(path: str, params: dict) -> dict:
             }
         }
     if path.endswith("/school/subjects"):
-        subjects = [
-            {"id": 301, "name": "English", "code": "ENG", "program_code": "diploma"},
-            {"id": 302, "name": "Mathematics", "code": "MAT", "program_code": "diploma"},
-        ]
-        return {"subjects": subjects if page == 1 else [], "meta": _meta(len(subjects), page)}
+        return {
+            "subjects": {
+                "diploma": [
+                    {"id": 301, "name": "English", "code": "ENG", "hl": True, "sl": True},
+                    {"id": 302, "name": "Mathematics", "code": "MAT", "hl": False, "sl": False},
+                ]
+            }
+        }
     if path.endswith("/teachers"):
         teachers = [
             {"id": 11, "first_name": "Ann", "last_name": "Lee", "email": "ann.lee@example.edu", "identifier": "T011"},
@@ -73,7 +76,7 @@ def resolve_fixture(path: str, params: dict) -> dict:
         if params.get("deleted_since"):
             teachers = []
         return {"teachers": teachers if page == 1 else [], "meta": _meta(len(teachers), page)}
-    if path.endswith("/students"):
+    if path.endswith("/students") and "/classes/" not in path and "/year-groups/" not in path:
         students = [
             {
                 "id": 1,
@@ -85,7 +88,7 @@ def resolve_fixture(path: str, params: dict) -> dict:
                 "year_group_id": 501,
                 "program": "Diploma",
                 "program_code": "diploma",
-                "grade": "Grade 10",
+                "class_grade": "Grade 10",
                 "updated_at": "2026-09-01T08:00:00+08:00",
             },
             {
@@ -94,11 +97,12 @@ def resolve_fixture(path: str, params: dict) -> dict:
                 "first_name": "Bob",
                 "last_name": "Wu",
                 "email": "bob.wu@example.edu",
-                "status": "enrolled",
+                "archived": True,
+                "withdrawn_on": "2025-02-18",
                 "year_group_id": 501,
                 "program": "Diploma",
                 "program_code": "diploma",
-                "grade": "Grade 10",
+                "class_grade": "Grade 10",
             },
             {
                 "id": 3,
@@ -106,11 +110,12 @@ def resolve_fixture(path: str, params: dict) -> dict:
                 "first_name": "Cara",
                 "last_name": "Ng",
                 "email": "cara.ng@example.edu",
-                "status": "enrolled",
+                "archived": False,
+                "graduated_on": "2026-07-15",
                 "year_group_id": 501,
                 "program": "Diploma",
                 "program_code": "diploma",
-                "grade": "Grade 10",
+                "class_grade": "Grade 10",
             },
         ]
         if params.get("deleted_since"):
@@ -133,7 +138,13 @@ def resolve_fixture(path: str, params: dict) -> dict:
         students = [{"id": 1}, {"id": 2}, {"id": 3}]
         return {"students": students if page == 1 else [], "meta": _meta(len(students), page)}
     if path.endswith("/year-groups/501/advisors"):
-        return {"advisors": [{"id": 99, "role": "homeroom"}, {"id": 11, "role": "cas"}]}
+        return {
+            "advisors": [
+                {"id": 99, "role": "homeroom"},
+                {"id": 11, "role": "cas"},
+                {"id": 98, "roles": ["EE", "TOK"]},
+            ]
+        }
     if path.endswith("/classes") and "/students" not in path and "/attendance/" not in path:
         classes = [
             {
@@ -167,7 +178,7 @@ def resolve_fixture(path: str, params: dict) -> dict:
     if path.endswith("/classes/801/students"):
         return {"student_ids": [1, 2], "memberships": [{"student_id": 1, "level": "SL"}, {"student_id": 2, "level": "HL"}]}
     if path.endswith("/classes/802/students"):
-        return {"students": [{"id": 1, "level": "SL"}, {"id": 3, "level": "HL"}]}
+        return {"student_ids": [1, 3], "student_levels": {"1": "SL", "3": "HL"}}
     if "/attendance/date/" in path and "/classes/" in path:
         day = path.rsplit("/", 1)[-1]
         if day != DEMO_ATTENDANCE_DATE:
@@ -197,9 +208,9 @@ def resolve_fixture(path: str, params: dict) -> dict:
             return {"students": []}
         return {
             "students": [
-                {"id": 1, "status": "Present", "category": "In class"},
-                {"id": 2, "status": "Late", "category": "In class"},
-                {"id": 3, "status": "Present", "category": "In class"},
+                {"id": 1, "attendance": {"status": "Present", "note": "", "category": {"status": 1}}},
+                {"id": 2, "attendance": {"status": "Early Leave", "note": "left", "category": {"status": 1}}},
+                {"id": 3, "attendance": {"status": "Sick Leave(Excused)", "note": "", "category": {"status": 2}}},
             ]
         }
     raise KeyError(path)

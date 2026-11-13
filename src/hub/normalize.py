@@ -20,6 +20,8 @@ ATTENDANCE_STATUS = {
     "l": "late",
     "tardy": "late",
     "excused": "excused",
+    "early leave": "early_leave",
+    "sick leave(excused)": "excused",
 }
 
 
@@ -65,14 +67,26 @@ def parse_date(value: Any) -> date | None:
         return None
 
 
-def derive_person_status(source: Any, archived: Any) -> str:
+def derive_person_status(source: Any, archived: Any, *, withdrawn_on: Any = None, graduated_on: Any = None) -> str:
     if isinstance(source, str) and source.strip():
         return STUDENT_STATUS.get(source.strip().lower(), "unknown")
+    if _has_date(graduated_on):
+        return "graduated"
+    if _has_date(withdrawn_on):
+        return "withdrawn"
     if archived is True:
         return "archived"
     if archived is False:
         return "active"
     return "unspecified"
+
+
+def _has_date(value: Any) -> bool:
+    if isinstance(value, datetime):
+        return True
+    if isinstance(value, date):
+        return True
+    return parse_date(value) is not None
 
 
 def standardize_attendance(source: Any) -> str:
@@ -82,13 +96,22 @@ def standardize_attendance(source: Any) -> str:
 
 
 def category_name(value: Any) -> str | None:
+    """A numeric category.status is an internal code, not a category name."""
     if value is None or value == "":
         return None
     if isinstance(value, str):
         return value
+    if isinstance(value, (int, float)):
+        return None
     if isinstance(value, dict):
-        name = value.get("name") or value.get("title") or value.get("status")
-        return str(name) if name else None
+        for key in ("name", "title"):
+            name = value.get(key)
+            if isinstance(name, str) and name.strip():
+                return name
+        status = value.get("status")
+        if isinstance(status, str) and status.strip():
+            return status
+        return None
     return str(value)
 
 
@@ -225,7 +248,11 @@ def student_ids_from_membership(payload: dict) -> list[tuple[str, str | None]]:
                 levels[sid] = str(level) if level else levels.get(sid)
             else:
                 levels[string_id(student)] = levels.get(string_id(student))
-    mapping = payload.get("memberships") or payload.get("levels")
+    mapping = payload.get("student_levels")
+    if mapping is None:
+        mapping = payload.get("memberships")
+    if mapping is None:
+        mapping = payload.get("levels")
     if isinstance(mapping, list):
         found = True
         for item in mapping:
@@ -292,7 +319,8 @@ def parse_homeroom_attendance(payload: dict, *, year_group_mb_id: str, business_
     for student in students:
         if not isinstance(student, dict) or "id" not in student:
             raise ShapeError("homeroom student missing id")
-        source = student.get("status") if "status" in student else None
+        info = _homeroom_info(student)
+        source = info.get("status") if "status" in info else None
         drafts.append(
             AttendanceDraft(
                 attendance_type="homeroom",
@@ -303,12 +331,22 @@ def parse_homeroom_attendance(payload: dict, *, year_group_mb_id: str, business_
                 period="homeroom",
                 source_status=str(source) if isinstance(source, str) else None,
                 standard_status=standardize_attendance(source),
-                category=category_name(student.get("category")),
-                note=student.get("note") if isinstance(student.get("note"), str) else None,
-                source_record_id=str(student["attendance_id"]) if student.get("attendance_id") is not None else None,
+                category=category_name(info.get("category")),
+                note=info.get("note") if isinstance(info.get("note"), str) else None,
+                source_record_id=str(info["attendance_id"]) if info.get("attendance_id") is not None else (
+                    str(student["attendance_id"]) if student.get("attendance_id") is not None else None
+                ),
             )
         )
     return drafts
+
+
+def _homeroom_info(student: dict) -> dict:
+    """Live homeroom rows nest status under attendance. Older payloads keep it on the student."""
+    attendance = student.get("attendance")
+    if isinstance(attendance, dict) and any(key in attendance for key in ("status", "note", "category")):
+        return attendance
+    return student
 
 
 def advisor_rows(payload: dict) -> list[tuple[str, str]]:
@@ -328,10 +366,27 @@ def advisor_rows(payload: dict) -> list[tuple[str, str]]:
     advisors = payload.get("advisors")
     rows = []
     if isinstance(advisors, list):
+        seen: set[tuple[str, str]] = set()
         for item in advisors:
             if not isinstance(item, dict):
                 raise ShapeError("advisor entry must be an object")
-            rows.append((string_id(item.get("id", item.get("teacher_id"))), str(item.get("role") or "advisor")))
+            teacher_id = string_id(item.get("id", item.get("teacher_id")))
+            roles = item.get("roles")
+            written = False
+            if isinstance(roles, list):
+                for role in roles:
+                    if role is None or role == "":
+                        continue
+                    written = True
+                    key = (teacher_id, str(role))
+                    if key not in seen:
+                        seen.add(key)
+                        rows.append(key)
+            if not written:
+                key = (teacher_id, str(item.get("role") or "advisor"))
+                if key not in seen:
+                    seen.add(key)
+                    rows.append(key)
         return rows
     if isinstance(advisors, dict):
         for role, items in advisors.items():

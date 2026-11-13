@@ -30,6 +30,7 @@ from hub.models import (
 from hub.normalize import (
     AttendanceDraft,
     derive_person_status,
+    parse_date,
     parse_timestamp,
     present_bool,
     present_int,
@@ -134,7 +135,7 @@ def upsert_student(session: Session, payload: dict, *, school_id: str, job_id: U
     row.email = present_string(payload, "email", row.email)
     row.program = present_string(payload, "program", row.program)
     row.program_code = present_string(payload, "program_code", row.program_code)
-    row.grade = present_string(payload, "grade", row.grade)
+    row.grade = _student_grade(payload, row.grade)
     if "year_group_id" in payload:
         row.year_group_mb_id = None if payload["year_group_id"] is None else str(payload["year_group_id"])
     if "homeroom_advisor_id" in payload:
@@ -143,8 +144,17 @@ def upsert_student(session: Session, payload: dict, *, school_id: str, job_id: U
     if "status" in payload:
         row.source_status = None if payload["status"] is None else str(payload["status"])
     row.archived = present_bool(payload, "archived", row.archived)
-    if "status" in payload or "archived" in payload or created:
-        row.standard_status = derive_person_status(row.source_status, row.archived)
+    if "withdrawn_on" in payload:
+        row.withdrawn_on = parse_date(payload.get("withdrawn_on"))
+    if "graduated_on" in payload:
+        row.graduated_on = parse_date(payload.get("graduated_on"))
+    if any(key in payload for key in ("status", "archived", "withdrawn_on", "graduated_on")) or created:
+        row.standard_status = derive_person_status(
+            row.source_status,
+            row.archived,
+            withdrawn_on=row.withdrawn_on,
+            graduated_on=row.graduated_on,
+        )
     if "updated_at" in payload:
         row.source_updated_at = parse_timestamp(payload.get("updated_at"))
     row.absent_since = None
@@ -206,8 +216,19 @@ def _person_snapshot(row: Student) -> tuple:
         row.source_status,
         row.standard_status,
         row.archived,
+        row.withdrawn_on,
+        row.graduated_on,
         row.source_updated_at,
     )
+
+
+def _student_grade(payload: dict, current: str | None) -> str | None:
+    """Live student records send class_grade. An explicit grade still wins."""
+    if "grade" in payload:
+        return present_string(payload, "grade", current)
+    if "class_grade" in payload:
+        return present_string(payload, "class_grade", current)
+    return current
 
 
 def mark_people_missing(session: Session, model, *, school_id: str, seen: set[str], job_id: UUID, dataset: str, now: datetime) -> int:
