@@ -87,6 +87,8 @@ class Student(Base):
     source_status: Mapped[str | None] = mapped_column(String(64))
     standard_status: Mapped[str] = mapped_column(String(32), nullable=False)
     archived: Mapped[bool | None] = mapped_column(Boolean)
+    withdrawn_on: Mapped[date | None] = mapped_column(Date)
+    graduated_on: Mapped[date | None] = mapped_column(Date)
     source_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     ingested_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

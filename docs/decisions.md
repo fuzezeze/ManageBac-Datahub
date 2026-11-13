@@ -20,6 +20,16 @@ Public ManageBac API v2 exposes subjects and classes. There is no confirmed inde
 
 Year-group advisor payloads are stored in `hub_core.year_group_advisors`. They are not copied into `teacher_classes`.
 
+## Live ManageBac fields
+
+A sample from api.managebac.com showed the shapes the sync now accepts:
+
+- `GET /school/subjects` is one object keyed by program and has no `meta`. The subjects job requests it once.
+- Student grade is `class_grade` when `grade` is absent. `graduated_on` and `withdrawn_on` are stored, and they set the standard status when the payload has no `status` string. A missing key does not clear a stored date.
+- Class membership levels arrive in `student_levels`. Advisor roles arrive in a `roles` array, one stored row per role.
+- Homeroom attendance status, note, and category sit on `student.attendance`. A numeric `category.status` is not stored as a category name. `Early Leave` standardizes to `early_leave`. `Sick Leave(Excused)` standardizes to `excused`.
+- The connection check calls `GET /school/academic-years`. `/auth/permissions` is not a public endpoint.
+
 ## Fixture mode is not school data
 
 `MB_AUTH_MODE=fixture` replays shapes from the public v2p3 docs so development and tests do not need a token. It is refused when `APP_ENV=production` unless explicitly allowed.

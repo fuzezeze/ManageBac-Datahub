@@ -158,14 +158,15 @@ def _academic_years(session: Session, client: ManageBacClient, job, worker_id: s
 
 
 def _subjects(session: Session, client: ManageBacClient, job, worker_id: str) -> Counts:
-    pages = list(client.paginate("school/subjects", {}, "subjects"))
-    _store_pages(session, job, pages)
-    counts = Counts(fetched=sum(page.record_count for page in pages))
+    # Live /school/subjects is one object keyed by program and has no pagination meta.
+    page = client.get_page("school/subjects")
+    _store_pages(session, job, [page])
+    parsed = iter_subjects(page.payload)
+    counts = Counts(fetched=len(parsed))
     now = utcnow()
     assert_lease(session, job.id, worker_id)
-    for page in pages:
-        for item in iter_subjects(page.payload):
-            _bump_from(counts, upsert_subject(session, item["program_code"], item["subject"], school_id=job.school_id, job_id=job.id, now=now))
+    for item in parsed:
+        _bump_from(counts, upsert_subject(session, item["program_code"], item["subject"], school_id=job.school_id, job_id=job.id, now=now))
     _finish(session, job, counts, succeeded=True)
     session.commit()
     return counts
@@ -542,7 +543,7 @@ def _attendance_by_owner(session, client, job, worker_id: str, *, owners, path_f
 def _connection_check(session, client, job, worker_id: str) -> Counts:
     started = utcnow()
     try:
-        page = client.get_page("auth/permissions")
+        page = client.get_page("school/academic-years")
     except ManageBacError as exc:
         session.add(
             ConnectionCheck(
