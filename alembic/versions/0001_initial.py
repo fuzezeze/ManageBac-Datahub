@@ -125,8 +125,8 @@ def _grants() -> list[str]:
         "quality_issues",
         "alerts",
     )
-    api_read = ("dataset_sync_state", "coverage_windows", "api_clients", "client_permissions", "client_ranges")
-    auth_read = ("api_clients", "api_credentials", "client_permissions", "client_ranges")
+    api_read = ("dataset_sync_state", "coverage_windows", "api_clients", "client_permissions", "client_ranges", "client_field_grants")
+    auth_read = ("api_clients", "api_credentials", "client_permissions", "client_ranges", "client_field_grants")
     admin_write = (
         "sync_schedules",
         "sync_jobs",
@@ -140,6 +140,7 @@ def _grants() -> list[str]:
         "api_credentials",
         "client_permissions",
         "client_ranges",
+        "client_field_grants",
         "api_usage_buckets",
         "quota_counters",
         "alerts",

@@ -635,6 +635,21 @@ class ClientPermission(Base):
     scope: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class ClientFieldGrant(Base):
+    """Allow-list of response fields for one read API. No rows means every default field."""
+
+    __tablename__ = "client_field_grants"
+    __table_args__ = (
+        UniqueConstraint("client_id", "resource", "field_name", name="uq_client_field"),
+        {"schema": "hub_ops"},
+    )
+
+    id: Mapped[object] = _uuid()
+    client_id: Mapped[object] = mapped_column(Uuid(as_uuid=True), ForeignKey("hub_ops.api_clients.id"), nullable=False)
+    resource: Mapped[str] = mapped_column(String(64), nullable=False)
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class ClientRange(Base):
     __tablename__ = "client_ranges"
     __table_args__ = (

@@ -42,6 +42,7 @@ from hub.web.access import (
     log_anonymous,
     new_request_id,
     persist_access,
+    project_fields,
 )
 
 router = APIRouter()
@@ -305,7 +306,7 @@ def list_students(request: Request, limit: int | None = None, cursor: str | None
             stmt = stmt.where(Student.year_group_mb_id == year_group_id)
         stmt = _apply_year_group_range(stmt, Student.year_group_mb_id, principal)
         rows, next_cursor = _page(api, stmt, (Student.mb_id, Student.id), principal, digest, cursor, page_size)
-        data = [_student_payload(row, principal) for row in rows]
+        data = [project_fields(_student_payload(row, principal), principal, "students") for row in rows]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
     return _serve(request, build)
 
@@ -323,7 +324,7 @@ def get_student(student_id: UUID, request: Request):
         row = api.execute(stmt).one_or_none()
         if row is None:
             raise ApiFailure(404, "NOT_FOUND", "Student was not found")
-        return _finish(request, api, principal, request_id, started, {"id": str(student_id)}, {"data": _student_payload(row, principal), "meta": _meta(request_id, 1, None, freshness)}, 1)
+        return _finish(request, api, principal, request_id, started, {"id": str(student_id)}, {"data": project_fields(_student_payload(row, principal), principal, "students"), "meta": _meta(request_id, 1, None, freshness)}, 1)
     return _serve(request, build)
 
 
@@ -354,7 +355,7 @@ def list_teachers(request: Request, limit: int | None = None, cursor: str | None
             }
             if "teachers:contact" in principal.scopes:
                 item["email"] = row.email
-            data.append(item)
+            data.append(project_fields(item, principal, "teachers"))
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
     return _serve(request, build)
 
@@ -382,7 +383,7 @@ def get_teacher(teacher_id: UUID, request: Request):
         }
         if "teachers:contact" in principal.scopes:
             item["email"] = row.email
-        return _finish(request, api, principal, request_id, started, {"id": str(teacher_id)}, {"data": item, "meta": _meta(request_id, 1, None, freshness)}, 1)
+        return _finish(request, api, principal, request_id, started, {"id": str(teacher_id)}, {"data": project_fields(item, principal, "teachers"), "meta": _meta(request_id, 1, None, freshness)}, 1)
     return _serve(request, build)
 
 
@@ -430,7 +431,7 @@ def _simple_academics(request, label, model, limit, cursor, projector, dataset="
             columns = [model.program_code, model.mb_id, model.id]
         stmt = select(model).where(model.school_id == get_settings().school_id)
         rows, next_cursor = _page(api, stmt, tuple(columns), principal, digest, cursor, page_size)
-        data = [projector(row) for row in rows]
+        data = [project_fields(projector(row), principal, label) for row in rows]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
     return _serve(request, build)
 
@@ -446,7 +447,7 @@ def list_classes(request: Request, limit: int | None = None, cursor: str | None 
         stmt = select(ClassGroup).where(ClassGroup.school_id == get_settings().school_id)
         stmt = _apply_class_range(stmt, ClassGroup.mb_id, principal)
         rows, next_cursor = _page(api, stmt, (ClassGroup.mb_id, ClassGroup.id), principal, digest, cursor, page_size)
-        data = [_class_payload(row) for row in rows]
+        data = [project_fields(_class_payload(row), principal, "classes") for row in rows]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
     return _serve(request, build)
 
@@ -461,7 +462,7 @@ def get_class(class_id: UUID, request: Request):
         row = api.scalars(stmt).one_or_none()
         if row is None:
             raise ApiFailure(404, "NOT_FOUND", "Class was not found")
-        return _finish(request, api, principal, request_id, started, {"id": str(class_id)}, {"data": _class_payload(row), "meta": _meta(request_id, 1, None, freshness)}, 1)
+        return _finish(request, api, principal, request_id, started, {"id": str(class_id)}, {"data": project_fields(_class_payload(row), principal, "classes"), "meta": _meta(request_id, 1, None, freshness)}, 1)
     return _serve(request, build)
 
 
@@ -501,7 +502,11 @@ def class_students(class_id: UUID, request: Request, limit: int | None = None, c
         )
         rows, next_cursor = _page(api, stmt, (StudentClass.student_mb_id, StudentClass.id), principal, digest, cursor, page_size)
         data = [
-            {"class_id": str(klass.id), "class_mb_id": klass.mb_id, "student_mb_id": row.student_mb_id, "level": row.level, "member_status": row.member_status}
+            project_fields(
+                {"class_id": str(klass.id), "class_mb_id": klass.mb_id, "student_mb_id": row.student_mb_id, "level": row.level, "member_status": row.member_status},
+                principal,
+                "enrollments",
+            )
             for row in rows
         ]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
@@ -528,14 +533,18 @@ def class_teachers(class_id: UUID, request: Request, limit: int | None = None, c
         )
         rows, next_cursor = _page(api, stmt, (TeacherClass.teacher_mb_id, TeacherClass.id), principal, digest, cursor, page_size)
         data = [
-            {
-                "class_id": str(klass.id),
-                "class_mb_id": klass.mb_id,
-                "teacher_mb_id": row.teacher_mb_id,
-                "role": row.role,
-                "show_on_reports": row.show_on_reports,
-                "member_status": row.member_status,
-            }
+            project_fields(
+                {
+                    "class_id": str(klass.id),
+                    "class_mb_id": klass.mb_id,
+                    "teacher_mb_id": row.teacher_mb_id,
+                    "role": row.role,
+                    "show_on_reports": row.show_on_reports,
+                    "member_status": row.member_status,
+                },
+                principal,
+                "teaching_assignments",
+            )
             for row in rows
         ]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
@@ -554,7 +563,11 @@ def list_year_groups(request: Request, limit: int | None = None, cursor: str | N
         stmt = _apply_year_group_range(stmt, YearGroup.mb_id, principal)
         rows, next_cursor = _page(api, stmt, (YearGroup.mb_id, YearGroup.id), principal, digest, cursor, page_size)
         data = [
-            {"id": str(row.id), "mb_id": row.mb_id, "name": row.name, "program": row.program, "program_code": row.program_code, "grade": row.grade, "archived": row.archived}
+            project_fields(
+                {"id": str(row.id), "mb_id": row.mb_id, "name": row.name, "program": row.program, "program_code": row.program_code, "grade": row.grade, "archived": row.archived},
+                principal,
+                "year_groups",
+            )
             for row in rows
         ]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
@@ -580,7 +593,14 @@ def year_group_students(year_group_id: UUID, request: Request, limit: int | None
             StudentYearGroup.member_status == "active",
         )
         rows, next_cursor = _page(api, stmt, (StudentYearGroup.student_mb_id, StudentYearGroup.id), principal, digest, cursor, page_size)
-        data = [{"year_group_id": str(group.id), "year_group_mb_id": group.mb_id, "student_mb_id": row.student_mb_id, "member_status": row.member_status} for row in rows]
+        data = [
+            project_fields(
+                {"year_group_id": str(group.id), "year_group_mb_id": group.mb_id, "student_mb_id": row.student_mb_id, "member_status": row.member_status},
+                principal,
+                "year_group_memberships",
+            )
+            for row in rows
+        ]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
     return _serve(request, build)
 
@@ -674,19 +694,23 @@ def list_attendance(
             page_size,
         )
         data = [
-            {
-                "id": str(row.id),
-                "attendance_type": row.attendance_type,
-                "student_mb_id": row.student_mb_id,
-                "business_date": row.business_date.isoformat(),
-                "class_mb_id": row.class_mb_id,
-                "year_group_mb_id": row.year_group_mb_id,
-                "period": row.period,
-                "source_status": row.source_status,
-                "status": row.standard_status,
-                "category": row.category,
-                "note": row.note,
-            }
+            project_fields(
+                {
+                    "id": str(row.id),
+                    "attendance_type": row.attendance_type,
+                    "student_mb_id": row.student_mb_id,
+                    "business_date": row.business_date.isoformat(),
+                    "class_mb_id": row.class_mb_id,
+                    "year_group_mb_id": row.year_group_mb_id,
+                    "period": row.period,
+                    "source_status": row.source_status,
+                    "status": row.standard_status,
+                    "category": row.category,
+                    "note": row.note,
+                },
+                principal,
+                "attendance",
+            )
             for row in rows
         ]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
@@ -739,7 +763,7 @@ def list_behavior_notes(
             )
             stmt = stmt.where(BehaviorNote.student_mb_id.in_(allowed_students))
         rows, next_cursor = _page(api, stmt, (BehaviorNote.mb_id, BehaviorNote.id), principal, digest, cursor, page_size)
-        data = [_behavior_payload(row, principal) for row in rows]
+        data = [project_fields(_behavior_payload(row, principal), principal, "behavior_notes") for row in rows]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
     return _serve(request, build)
 
