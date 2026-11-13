@@ -5,6 +5,7 @@ from hub.normalize import (
     category_name,
     derive_person_status,
     iter_subjects,
+    parse_behavior_notes,
     parse_homeroom_attendance,
     standardize_attendance,
     student_ids_from_membership,
@@ -58,3 +59,28 @@ def test_exit_dates_set_status_without_replacing_an_explicit_status():
     assert standardize_attendance("Left-early") == "unknown"
     assert category_name({"status": 1}) is None
     assert category_name("In class") == "In class"
+
+
+def test_behavior_notes_keep_reporter_text_and_visibility():
+    drafts = parse_behavior_notes(
+        {
+            "behavior_notes": [
+                {
+                    "id": 9,
+                    "student_id": "S001",
+                    "notes": "Helped a classmate during lab.",
+                    "behavior_type": "Positive",
+                    "incident_time": "2026-11-10T09:15:00+08:00",
+                    "author_id": 11,
+                    "visible_to_parents": True,
+                    "visible_to_students": False,
+                }
+            ]
+        }
+    )
+    assert drafts[0].mb_id == "9"
+    assert drafts[0].student_id == "S001"
+    assert drafts[0].notes == "Helped a classmate during lab."
+    assert drafts[0].author_id == "11"
+    assert drafts[0].visible_to_parents is True
+    assert drafts[0].incident_time is not None

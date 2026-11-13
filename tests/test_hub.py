@@ -10,6 +10,7 @@ from hub.jobs import enqueue_job
 from hub.models import (
     AttendanceRecord,
     AttendanceRevision,
+    BehaviorNote,
     RelationshipObservation,
     Student,
     StudentClass,
@@ -50,7 +51,7 @@ def truncate() -> None:
 def synced():
     url = session_for("migrate").get_bind().url
     session_for("migrate").close()
-    if url.host not in {"127.0.0.1", "localhost"}:
+    if url.host not in {"127.0.0.1", "localhost", "mysql"}:
         raise RuntimeError("refusing to truncate a non-local database")
     truncate()
     ensure_bootstrap_admin()
@@ -99,11 +100,27 @@ def test_fixture_sync_publishes_people_and_attendance(synced):
                 AttendanceRecord.business_date == date(2026, 11, 10),
             )
         ).all()
-        assert {(row.student_mb_id, row.source_status, row.standard_status, row.category) for row in homeroom} == {
-            ("1", "Present", "present", None),
-            ("2", "Early Leave", "early_leave", None),
-            ("3", "Sick Leave(Excused)", "excused", None),
+        assert {(row.student_mb_id, row.source_status, row.standard_status, row.category, row.note) for row in homeroom} == {
+            ("1", "Present", "present", None, ""),
+            ("2", "Early Leave", "early_leave", None, "left"),
+            ("3", "Sick Leave(Excused)", "excused", None, ""),
         }
+        class_notes = session.scalars(
+            select(AttendanceRecord).where(
+                AttendanceRecord.attendance_type == "class",
+                AttendanceRecord.business_date == date(2026, 11, 10),
+            )
+        ).all()
+        assert { (row.student_mb_id, row.class_mb_id, row.period, row.note) for row in class_notes } >= {
+            ("1", "801", "1", "on time"),
+            ("1", "801", "2", "bus"),
+            ("3", "802", "1", "clinic"),
+        }
+        notes = session.scalars(select(BehaviorNote).order_by(BehaviorNote.mb_id)).all()
+        assert [(row.mb_id, row.student_mb_id, row.notes) for row in notes] == [
+            ("9001", "1", "Helped a classmate during lab."),
+            ("9002", "1", "Arrived after the second bell."),
+        ]
     finally:
         session.close()
     analytics = session_for("analytics")
@@ -215,6 +232,44 @@ def test_courses_stay_blocked_and_api_hides_email_without_contact_scope(synced):
     assert roster.status_code == 200
     assert roster.json()["student_count"] == 3
     assert roster.json()["attendance_rate_published"] is False
+
+
+def test_attendance_and_behavior_notes_are_served(synced):
+    app = create_app()
+    client = TestClient(app)
+    login = client.post("/admin/api/login", json={"email": "admin@example.com", "password": "change-me"})
+    csrf = login.json()["csrf_token"]
+    created = client.post(
+        "/admin/api/clients",
+        json={
+            "name": "notes-reader",
+            "scopes": ["attendance:read", "behavior:read"],
+            "requests_per_minute": 30,
+            "records_per_day": 100,
+            "bytes_per_day": 100000,
+        },
+        headers={"x-csrf-token": csrf},
+    )
+    assert created.status_code == 200, created.text
+    secret = created.json()["credential"]["secret"]
+    headers = {"Authorization": f"Bearer {secret}"}
+    attendance = client.get("/api/v1/attendance?date_from=2026-11-10&date_to=2026-11-10&attendance_type=homeroom", headers=headers)
+    assert attendance.status_code == 200, attendance.text
+    assert all("note" in item for item in attendance.json()["data"])
+    homeroom = {(item["student_mb_id"], item["note"]) for item in attendance.json()["data"]}
+    assert ("2", "left") in homeroom
+    class_day = client.get("/api/v1/attendance?date_from=2026-11-10&date_to=2026-11-10&attendance_type=class", headers=headers)
+    assert class_day.status_code == 200, class_day.text
+    assert any(item["note"] == "clinic" for item in class_day.json()["data"])
+    behavior = client.get("/api/v1/behavior-notes", headers=headers)
+    assert behavior.status_code == 200, behavior.text
+    body = behavior.json()
+    assert body["meta"]["returned_count"] == 2
+    assert {item["notes"] for item in body["data"]} == {
+        "Helped a classmate during lab.",
+        "Arrived after the second bell.",
+    }
+    assert "email" not in body["data"][0]
 
 
 def test_cursor_cannot_be_reused_for_a_different_filter(synced):

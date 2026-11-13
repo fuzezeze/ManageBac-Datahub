@@ -12,6 +12,7 @@ from hub.db import session_for
 from hub.models import (
     AcademicYear,
     AttendanceRecord,
+    BehaviorNote,
     ClassGroup,
     CoverageWindow,
     DatasetSyncState,
@@ -638,6 +639,7 @@ def list_attendance(
             AttendanceRecord.source_status,
             AttendanceRecord.standard_status,
             AttendanceRecord.category,
+            AttendanceRecord.note,
         ).where(
             AttendanceRecord.school_id == get_settings().school_id,
             AttendanceRecord.business_date >= start,
@@ -683,11 +685,88 @@ def list_attendance(
                 "source_status": row.source_status,
                 "status": row.standard_status,
                 "category": row.category,
+                "note": row.note,
             }
             for row in rows
         ]
         return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
     return _serve(request, build)
+
+
+@router.get("/api/v1/behavior-notes")
+def list_behavior_notes(
+    request: Request,
+    student_id: UUID | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+):
+    def build(api, principal, request_id, started):
+        _require_scope(principal, "behavior:read")
+        page_size = clean_limit(limit)
+        freshness = _guard_dataset(api, ["behavior_notes"])
+        filters = {"student_id": str(student_id) if student_id else None}
+        digest = filter_hash(filters)
+        stmt = select(
+            BehaviorNote.id,
+            BehaviorNote.mb_id,
+            BehaviorNote.student_mb_id,
+            BehaviorNote.student_id,
+            BehaviorNote.email,
+            BehaviorNote.first_name,
+            BehaviorNote.last_name,
+            BehaviorNote.grade,
+            BehaviorNote.incident_time,
+            BehaviorNote.behavior_type,
+            BehaviorNote.notes,
+            BehaviorNote.next_step,
+            BehaviorNote.next_step_date,
+            BehaviorNote.reported_by,
+            BehaviorNote.homeroom_advisor,
+            BehaviorNote.author_id,
+            BehaviorNote.visible_to_parents,
+            BehaviorNote.visible_to_students,
+        ).where(BehaviorNote.school_id == get_settings().school_id)
+        if student_id:
+            student = api.get(Student, student_id)
+            if student is None:
+                raise ApiFailure(404, "NOT_FOUND", "Student was not found")
+            stmt = stmt.where(BehaviorNote.student_mb_id == student.mb_id)
+        allowed = principal.ranges.get("year_group")
+        if allowed:
+            allowed_students = select(Student.mb_id).where(
+                Student.school_id == get_settings().school_id,
+                Student.year_group_mb_id.in_(allowed),
+            )
+            stmt = stmt.where(BehaviorNote.student_mb_id.in_(allowed_students))
+        rows, next_cursor = _page(api, stmt, (BehaviorNote.mb_id, BehaviorNote.id), principal, digest, cursor, page_size)
+        data = [_behavior_payload(row, principal) for row in rows]
+        return _finish(request, api, principal, request_id, started, filters, {"data": data, "meta": _meta(request_id, len(data), next_cursor, freshness)}, len(data))
+    return _serve(request, build)
+
+
+def _behavior_payload(row, principal: Principal) -> dict:
+    payload = {
+        "id": str(row.id),
+        "mb_id": row.mb_id,
+        "student_mb_id": row.student_mb_id,
+        "student_id": row.student_id,
+        "first_name": row.first_name,
+        "last_name": row.last_name,
+        "grade": row.grade,
+        "incident_time": None if row.incident_time is None else row.incident_time.isoformat(),
+        "behavior_type": row.behavior_type,
+        "notes": row.notes,
+        "next_step": row.next_step,
+        "next_step_date": None if row.next_step_date is None else row.next_step_date.isoformat(),
+        "reported_by": row.reported_by,
+        "homeroom_advisor": row.homeroom_advisor,
+        "author_id": row.author_id,
+        "visible_to_parents": row.visible_to_parents,
+        "visible_to_students": row.visible_to_students,
+    }
+    if "students:contact" in principal.scopes:
+        payload["email"] = row.email
+    return payload
 
 
 @router.get("/api/v1/data-status")

@@ -10,6 +10,7 @@ from hub.catalog import DATASETS
 from hub.config import get_settings
 from hub.connector import AuthError, ContractError, ManageBacClient, ManageBacError, Page, RateLimited, TransientError
 from hub.models import (
+    BehaviorNote,
     ClassGroup,
     ConnectionCheck,
     DatasetSyncState,
@@ -25,6 +26,7 @@ from hub.normalize import (
     advisor_rows,
     iter_academic_years,
     iter_subjects,
+    parse_behavior_notes,
     parse_class_attendance,
     parse_homeroom_attendance,
     student_ids_from_membership,
@@ -42,6 +44,7 @@ from hub.publish import (
     replace_advisors,
     save_checkpoint,
     save_raw,
+    upsert_behavior_note,
     upsert_class,
     upsert_student,
     upsert_student_class,
@@ -104,6 +107,7 @@ def run_dataset(session: Session, client: ManageBacClient, job, worker_id: str) 
         "teacher_classes": _teacher_classes,
         "attendance_class": _attendance_class,
         "attendance_homeroom": _attendance_homeroom,
+        "behavior_notes": _behavior_notes,
     }
     return handlers[job.dataset](session, client, job, worker_id)
 
@@ -484,6 +488,36 @@ def _date_span(job) -> list[date]:
     return days
 
 
+def _behavior_notes(session, client, job, worker_id: str) -> Counts:
+    mode = job.scope.get("mode") or "full"
+    checkpoint = load_checkpoint(session, school_id=job.school_id, dataset="behavior_notes", scope_key="incremental")
+    upper = utcnow()
+    params: dict = {}
+    if mode == "incremental":
+        if not checkpoint.get("upper_bound"):
+            raise ContractError("incremental sync requires a completed full sync")
+        previous = datetime.fromisoformat(checkpoint["upper_bound"])
+        params["modified_since"] = (previous - timedelta(hours=6)).isoformat()
+    pages = list(client.paginate("behavior/notes", params, "behavior_notes"))
+    _store_pages(session, job, pages)
+    counts = Counts(fetched=sum(page.record_count for page in pages))
+    now = utcnow()
+    assert_lease(session, job.id, worker_id)
+    for page in pages:
+        for draft in parse_behavior_notes(page.payload):
+            _bump_from(counts, upsert_behavior_note(session, draft, school_id=job.school_id, job_id=job.id, now=now))
+    save_checkpoint(
+        session,
+        school_id=job.school_id,
+        dataset="behavior_notes",
+        scope_key="incremental",
+        cursor={"upper_bound": upper.isoformat()},
+    )
+    _finish(session, job, counts, succeeded=True)
+    session.commit()
+    return counts
+
+
 def _attendance_class(session, client, job, worker_id: str) -> Counts:
     return _attendance_by_owner(
         session,
@@ -600,6 +634,7 @@ def _record_count(session: Session, dataset: str, school_id: str) -> int | None:
         "student_year_groups": StudentYearGroup,
         "student_classes": StudentClass,
         "teacher_classes": TeacherClass,
+        "behavior_notes": BehaviorNote,
     }.get(dataset)
     if model is None:
         return None

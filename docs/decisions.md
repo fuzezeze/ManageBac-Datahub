@@ -10,7 +10,7 @@ Consequences:
 - Timestamps are UTC `DATETIME(6)` values. The connection sets `time_zone = '+00:00'`. Business dates such as attendance days stay `DATE` and are not shifted through UTC.
 - A running sync is unique per school and dataset through a stored generated column, `running_scope`, which is NULL unless `status = 'running'`. MySQL unique indexes allow many NULLs, so queued jobs do not collide.
 - Attendance's natural key uses `IFNULL(class_mb_id, '')` and `IFNULL(year_group_mb_id, '')` for the same reason: MySQL would otherwise treat two NULL class ids as different.
-- Views are `SQL SECURITY DEFINER`. `hub_analytics` can read the views without reading base tables. `hub_api` and `hub_admin` are not granted `SELECT` on `attendance_records.note`.
+- Views are `SQL SECURITY DEFINER`. `hub_analytics` can read the views without reading base tables. `hub_api` and `hub_admin` can read `attendance_records.note` and `behavior_notes`. Student email on a behavior note is still withheld from Internal API clients unless they have `students:contact`.
 
 ## Course records are not synthesized
 
@@ -27,7 +27,8 @@ A sample from api.managebac.com showed the shapes the sync now accepts:
 - `GET /school/subjects` is one object keyed by program and has no `meta`. The subjects job requests it once.
 - Student grade is `class_grade` when `grade` is absent. `graduated_on` and `withdrawn_on` are stored, and they set the standard status when the payload has no `status` string. A missing key does not clear a stored date.
 - Class membership levels arrive in `student_levels`. Advisor roles arrive in a `roles` array, one stored row per role.
-- Homeroom attendance status, note, and category sit on `student.attendance`. A numeric `category.status` is not stored as a category name. `Early Leave` standardizes to `early_leave`. `Sick Leave(Excused)` standardizes to `excused`.
+- Homeroom attendance status, note, and category sit on `student.attendance`. A numeric `category.status` is not stored as a category name. `Early Leave` standardizes to `early_leave`. `Sick Leave(Excused)` standardizes to `excused`. Class period notes sit on each period object as `note`.
+- Behavior notes come from `GET /behavior/notes`. The payload `student_id` is documented as the school's own student identifier; the hub also stores `student_mb_id` when that value matches a student `mb_id` or `student_id`. Changelog fields `author_id`, `visible_to_parents`, `visible_to_students`, `created_at`, and `updated_at` are stored when present.
 - The connection check calls `GET /school/academic-years`. `/auth/permissions` is not a public endpoint.
 
 ## Fixture mode is not school data

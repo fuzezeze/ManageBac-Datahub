@@ -16,7 +16,7 @@ depends_on = None
 
 ATTENDANCE_COLUMNS = """
   id, school_id, attendance_type, student_mb_id, business_date, class_mb_id,
-  year_group_mb_id, period, source_status, standard_status, category, source_record_id,
+  year_group_mb_id, period, source_status, standard_status, category, note, source_record_id,
   ingested_at, last_seen_at, normalized_updated_at, sync_job_id, class_key, year_group_key
 """
 
@@ -35,6 +35,7 @@ CORE_TABLES = (
     "year_group_advisors",
     "relationship_observations",
     "attendance_revisions",
+    "behavior_notes",
 )
 
 VIEWS = [
@@ -75,8 +76,15 @@ VIEWS = [
     """
     CREATE OR REPLACE SQL SECURITY DEFINER VIEW hub_analytics.v_attendance_detail AS
     SELECT id, school_id, attendance_type, student_mb_id, business_date, class_mb_id,
-           year_group_mb_id, period, source_status, standard_status, category
+           year_group_mb_id, period, source_status, standard_status, category, note
     FROM hub_core.attendance_records
+    """,
+    """
+    CREATE OR REPLACE SQL SECURITY DEFINER VIEW hub_analytics.v_behavior_notes AS
+    SELECT id, school_id, mb_id, student_mb_id, student_id, first_name, last_name, grade,
+           incident_time, behavior_type, notes, next_step, next_step_date, reported_by,
+           homeroom_advisor, author_id, visible_to_parents, visible_to_students
+    FROM hub_core.behavior_notes
     """,
     """
     CREATE OR REPLACE SQL SECURITY DEFINER VIEW hub_analytics.v_attendance_daily_summary AS
@@ -196,6 +204,7 @@ def downgrade() -> None:
         "v_year_group_membership",
         "v_attendance_detail",
         "v_attendance_daily_summary",
+        "v_behavior_notes",
         "v_sync_dataset_status",
         "v_api_usage_daily",
     ):

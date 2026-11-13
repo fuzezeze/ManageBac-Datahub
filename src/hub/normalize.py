@@ -30,6 +30,28 @@ class ShapeError(ValueError):
 
 
 @dataclass
+class BehaviorNoteDraft:
+    mb_id: str
+    student_id: str | None
+    email: str | None
+    first_name: str | None
+    last_name: str | None
+    grade: str | None
+    incident_time: datetime | None
+    behavior_type: str | None
+    notes: str | None
+    next_step: str | None
+    next_step_date: date | None
+    reported_by: str | None
+    homeroom_advisor: str | None
+    author_id: str | None
+    visible_to_parents: bool | None
+    visible_to_students: bool | None
+    source_created_at: datetime | None
+    source_updated_at: datetime | None
+
+
+@dataclass
 class AttendanceDraft:
     attendance_type: str
     student_mb_id: str
@@ -336,6 +358,41 @@ def parse_homeroom_attendance(payload: dict, *, year_group_mb_id: str, business_
                 source_record_id=str(info["attendance_id"]) if info.get("attendance_id") is not None else (
                     str(student["attendance_id"]) if student.get("attendance_id") is not None else None
                 ),
+            )
+        )
+    return drafts
+
+
+def parse_behavior_notes(payload: dict) -> list[BehaviorNoteDraft]:
+    if "behavior_notes" not in payload:
+        raise ShapeError("behavior notes response missing behavior_notes")
+    rows = payload.get("behavior_notes") or []
+    if not isinstance(rows, list):
+        raise ShapeError("behavior_notes must be a list")
+    drafts: list[BehaviorNoteDraft] = []
+    for item in rows:
+        if not isinstance(item, dict) or "id" not in item:
+            raise ShapeError("behavior note missing id")
+        drafts.append(
+            BehaviorNoteDraft(
+                mb_id=string_id(item.get("id")),
+                student_id=str(item["student_id"]) if item.get("student_id") not in (None, "") else None,
+                email=item.get("email") if isinstance(item.get("email"), str) else None,
+                first_name=item.get("first_name") if isinstance(item.get("first_name"), str) else None,
+                last_name=item.get("last_name") if isinstance(item.get("last_name"), str) else None,
+                grade=item.get("grade") if isinstance(item.get("grade"), str) else None,
+                incident_time=parse_timestamp(item.get("incident_time")),
+                behavior_type=item.get("behavior_type") if isinstance(item.get("behavior_type"), str) else None,
+                notes=item.get("notes") if isinstance(item.get("notes"), str) else None,
+                next_step=item.get("next_step") if isinstance(item.get("next_step"), str) else None,
+                next_step_date=parse_date(item.get("next_step_date")),
+                reported_by=item.get("reported_by") if isinstance(item.get("reported_by"), str) else None,
+                homeroom_advisor=item.get("homeroom_advisor") if isinstance(item.get("homeroom_advisor"), str) else None,
+                author_id=str(item["author_id"]) if item.get("author_id") not in (None, "") else None,
+                visible_to_parents=item.get("visible_to_parents") if isinstance(item.get("visible_to_parents"), bool) else None,
+                visible_to_students=item.get("visible_to_students") if isinstance(item.get("visible_to_students"), bool) else None,
+                source_created_at=parse_timestamp(item.get("created_at")),
+                source_updated_at=parse_timestamp(item.get("updated_at")),
             )
         )
     return drafts

@@ -399,6 +399,44 @@ class AttendanceRecord(Base):
     sync_job_id: Mapped[object] = mapped_column(Uuid(as_uuid=True), nullable=False)
 
 
+class BehaviorNote(Base):
+    """Teacher-submitted behavior notes from GET /behavior/notes."""
+
+    __tablename__ = "behavior_notes"
+    __table_args__ = (
+        UniqueConstraint("school_id", "source_system", "mb_id", name="uq_behavior_notes_source"),
+        Index("ix_behavior_notes_student", "school_id", "student_mb_id"),
+        {"schema": "hub_core"},
+    )
+
+    id: Mapped[object] = _uuid()
+    school_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_system: Mapped[str] = mapped_column(String(32), nullable=False, default="managebac")
+    mb_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    student_mb_id: Mapped[str | None] = mapped_column(String(64))
+    student_id: Mapped[str | None] = mapped_column(String(128))
+    email: Mapped[str | None] = mapped_column(String(320))
+    first_name: Mapped[str | None] = mapped_column(String(200))
+    last_name: Mapped[str | None] = mapped_column(String(200))
+    grade: Mapped[str | None] = mapped_column(String(64))
+    incident_time: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    behavior_type: Mapped[str | None] = mapped_column(String(200))
+    notes: Mapped[str | None] = mapped_column(Text)
+    next_step: Mapped[str | None] = mapped_column(Text)
+    next_step_date: Mapped[date | None] = mapped_column(Date)
+    reported_by: Mapped[str | None] = mapped_column(String(200))
+    homeroom_advisor: Mapped[str | None] = mapped_column(String(200))
+    author_id: Mapped[str | None] = mapped_column(String(64))
+    visible_to_parents: Mapped[bool | None] = mapped_column(Boolean)
+    visible_to_students: Mapped[bool | None] = mapped_column(Boolean)
+    source_created_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    source_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    ingested_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    normalized_updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    sync_job_id: Mapped[object] = mapped_column(Uuid(as_uuid=True), nullable=False)
+
+
 class AttendanceRevision(Base):
     __tablename__ = "attendance_revisions"
     __table_args__ = {"schema": "hub_core"}
