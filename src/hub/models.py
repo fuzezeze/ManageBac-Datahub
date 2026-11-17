@@ -763,6 +763,20 @@ class AdminUser(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
+class ReportGrant(Base):
+    __tablename__ = "report_grants"
+    __table_args__ = (
+        UniqueConstraint("admin_id", "report_key", name="uq_report_grant"),
+        {"schema": "hub_ops"},
+    )
+
+    id: Mapped[object] = _uuid()
+    admin_id: Mapped[object] = mapped_column(Uuid(as_uuid=True), ForeignKey("hub_ops.admins.id"), nullable=False)
+    report_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    granted_by: Mapped[object | None] = mapped_column(Uuid(as_uuid=True))
+    granted_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 class AdminSession(Base):
     __tablename__ = "admin_sessions"
     __table_args__ = {"schema": "hub_ops"}

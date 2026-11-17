@@ -277,6 +277,14 @@ def test_user_can_open_live_reports_only(synced):
     admin = TestClient(app)
     login = admin.post("/admin/api/login", json={"email": "admin@example.com", "password": "change-me"})
     csrf = login.json()["csrf_token"]
+    catalog = admin.get("/admin/api/analytics/reports")
+    assert catalog.status_code == 200, catalog.text
+    assert {item["key"] for item in catalog.json()["reports"]} == {
+        "student_roster",
+        "attendance_daily",
+        "student_attendance",
+        "teacher_assignments",
+    }
     created = admin.post(
         "/admin/api/users",
         json={"email": "viewer@example.com", "password": "change-me-2", "role": "user"},
@@ -284,6 +292,7 @@ def test_user_can_open_live_reports_only(synced):
     )
     assert created.status_code == 200, created.text
     assert created.json()["user"]["role"] == "user"
+    assert created.json()["user"]["reports"] == []
     viewer = TestClient(app)
     signed = viewer.post("/admin/api/login", json={"email": "viewer@example.com", "password": "change-me-2"})
     assert signed.status_code == 200, signed.text
@@ -292,13 +301,38 @@ def test_user_can_open_live_reports_only(synced):
     assert viewer.get("/admin/api/clients").status_code == 403
     reports = viewer.get("/admin/api/analytics/reports")
     assert reports.status_code == 200, reports.text
+    assert reports.json()["reports"] == []
+    blocked = viewer.get("/admin/api/analytics/reports/student_attendance")
+    assert blocked.status_code == 403
+    unknown = admin.patch(
+        f"/admin/api/users/{created.json()['user']['id']}",
+        json={"reports": ["not-a-report"]},
+        headers={"x-csrf-token": csrf},
+    )
+    assert unknown.status_code == 400
+    granted = admin.patch(
+        f"/admin/api/users/{created.json()['user']['id']}",
+        json={"reports": ["teacher_assignments", "student_attendance"]},
+        headers={"x-csrf-token": csrf},
+    )
+    assert granted.status_code == 200, granted.text
+    assert granted.json()["user"]["reports"] == ["student_attendance", "teacher_assignments"]
+    reports = viewer.get("/admin/api/analytics/reports")
     assert {item["key"] for item in reports.json()["reports"]} == {"student_attendance", "teacher_assignments"}
+    hidden = viewer.get("/admin/api/analytics/reports/student_roster")
+    assert hidden.status_code == 403
     attendance = viewer.get("/admin/api/analytics/reports/student_attendance?date_from=2026-11-10&date_to=2026-11-10&student=Bob")
     assert attendance.status_code == 200, attendance.text
     assert "left" in {row["note"] for row in attendance.json()["data"]}
     teaching = viewer.get("/admin/api/analytics/reports/teacher_assignments?subject=English")
     assert teaching.status_code == 200, teaching.text
     assert any(row["teacher"] == "Ann Lee" and row["subject"] == "English" and row["course"] == "English A" for row in teaching.json()["data"])
+    roster = admin.get("/admin/api/analytics/reports/student_roster?student=Ada")
+    assert roster.status_code == 200, roster.text
+    assert any(row["student_id"] == "S001" for row in roster.json()["data"])
+    daily = admin.get("/admin/api/analytics/reports/attendance_daily?date_from=2026-11-10&date_to=2026-11-10")
+    assert daily.status_code == 200, daily.text
+    assert sum(row["record_count"] for row in daily.json()["data"]) > 0
 
 
 def test_field_grants_hide_unselected_fields_and_usage_is_counted(synced):

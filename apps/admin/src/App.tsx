@@ -21,7 +21,7 @@ const NAV: Array<{ label: string; items: Array<[Page, string]> }> = [
       ["accounts", "Accounts"],
     ],
   },
-  { label: "Insight", items: [["analytics", "Analytics"]] },
+  { label: "Insight", items: [["analytics", "Insights"]] },
 ];
 
 export function App() {
@@ -76,7 +76,7 @@ export function App() {
           <span className="role">{roleLabel(session.role)}</span>
         </p>
         <div className="nav-scroll">
-          {(admin ? NAV : [{ label: "Insight", items: [["analytics", "Analytics"] as [Page, string]] }]).map((group) => (
+          {(admin ? NAV : [{ label: "Insight", items: [["analytics", "Insights"] as [Page, string]] }]).map((group) => (
             <div key={group.label} className="nav-cluster">
               {admin ? <p className="nav-group">{group.label}</p> : null}
               {group.items.map(([item, label]) => (
@@ -98,7 +98,7 @@ export function App() {
         {current === "clients" && <ClientsPage zone={zone} />}
         {current === "audit" && <AuditPage zone={zone} />}
         {current === "accounts" && <AccountsPage currentEmail={session.email} />}
-        {current === "analytics" && <AnalyticsPage admin={admin} />}
+        {current === "analytics" && <AnalyticsPage />}
       </main>
     </div>
   );

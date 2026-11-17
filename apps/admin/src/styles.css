@@ -293,13 +293,39 @@ td.actions { white-space: nowrap; }
 .drawer { width: min(640px, 100%); height: 100%; overflow: auto; padding: 1.2rem 1.2rem 2rem; }
 .dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; }
 .form-grid { display: flex; flex-direction: column; gap: 0.8rem; }
+.hub-search input { font-weight: 500; }
+.hub-cats { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.hub-cats button { border: 0; background: white; color: var(--ink-soft); border-radius: 999px; padding: 0.4rem 0.8rem; font-weight: 700; }
+.hub-cats button.active { background: var(--blue); color: white; }
+.hub-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.85rem; }
+.hub-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+  text-align: left;
+  background: white;
+  border: 0;
+  border-radius: 16px;
+  padding: 1rem 1rem 0.9rem;
+  box-shadow: 0 1px 2px rgba(32, 57, 97, 0.05);
+  min-height: 190px;
+}
+.hub-card:hover { box-shadow: 0 8px 22px rgba(32, 57, 97, 0.08); }
+.hub-card strong { font-size: 1.05rem; letter-spacing: -0.02em; }
+.hub-card p { color: var(--muted); font-size: 0.88rem; line-height: 1.4; }
+.hub-cat { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--blue); }
+.hub-card.cat-attendance .hub-cat { color: var(--ok); }
+.hub-card.cat-teaching .hub-cat { color: #9a5b16; }
+.hub-open { margin-top: auto; font-weight: 700; color: var(--blue); }
+.hub-card footer { color: var(--muted); font-size: 0.78rem; line-height: 1.35; }
 .report-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .report-tabs button { border: 0; background: #e8f3fc; color: var(--ink-soft); border-radius: 999px; padding: 0.4rem 0.75rem; font-weight: 700; }
 .report-tabs button.active { background: var(--blue); color: white; }
 .error { color: var(--bad); margin-top: 0.75rem; }
 
 @media (max-width: 1100px) {
-  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .stat-grid, .hub-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 860px) {
   .signin { grid-template-columns: 1fr; }
@@ -314,6 +340,7 @@ td.actions { white-space: nowrap; }
   main { padding: 1.1rem 0.9rem 2rem; }
   .page-head { flex-direction: column; }
   .quota-grid, .filters, .checks { grid-template-columns: 1fr; }
+  .hub-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
   .stat-grid { grid-template-columns: 1fr; }

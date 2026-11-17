@@ -1,27 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "./api";
-import { errorMessage, formatNumber, titleCaseToken } from "./format";
+import { datasetLabel, errorMessage, relativeTime, titleCaseToken } from "./format";
 import { Empty, ErrorBanner, PageHead } from "./ui";
-
-type Summary = {
-  student_count: number;
-  attendance: Array<{ business_date: string; attendance_type: string; status: string; record_count: number }>;
-  attendance_rate_published: boolean;
-};
 
 type Filter = { key: string; label: string; kind: string };
 type Column = { key: string; label: string };
-type ReportMeta = { key: string; title: string; description: string; filters: Filter[]; columns: Column[] };
-type ReportResult = { report: ReportMeta; data: Array<Record<string, string | number | null>>; meta: { returned_count: number } };
-
-type RosterRow = {
-  mb_id: string;
-  student_id: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  status: string | null;
-  year_group_name: string | null;
+type Freshness = { as_of: string | null; datasets: Array<{ dataset: string; last_success_at: string | null }> };
+type ReportMeta = {
+  key: string;
+  title: string;
+  description: string;
+  category: string;
+  filters: Filter[];
+  columns: Column[];
+  freshness?: Freshness;
 };
+type ReportResult = { report: ReportMeta; data: Array<Record<string, string | number | null>>; meta: { returned_count: number } };
 
 function displayCell(column: string, value: string | number | null | undefined): string {
   if (value == null || value === "") return "—";
@@ -30,61 +24,66 @@ function displayCell(column: string, value: string | number | null | undefined):
   return text;
 }
 
-export function AnalyticsPage({ admin }: { admin: boolean }) {
-  const [summary, setSummary] = useState<Summary | null>(null);
+function freshnessLine(report: ReportMeta): string {
+  const freshness = report.freshness;
+  if (!freshness) return "Synced from the school database";
+  const sources = freshness.datasets.map((item) => datasetLabel(item.dataset)).join(", ");
+  if (!freshness.as_of) return `Not synced yet · ${sources}`;
+  return `Updated ${relativeTime(freshness.as_of)} · ${sources}`;
+}
+
+export function AnalyticsPage() {
+  const [reports, setReports] = useState<ReportMeta[] | null>(null);
   const [error, setError] = useState("");
-  const [reports, setReports] = useState<ReportMeta[]>([]);
-  const [reportKey, setReportKey] = useState("");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All");
+  const [openKey, setOpenKey] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(0);
   const [result, setResult] = useState<ReportResult | null>(null);
   const [reportError, setReportError] = useState("");
   const [running, setRunning] = useState(false);
-  const [roster, setRoster] = useState<RosterRow[] | null>(null);
-  const [rosterError, setRosterError] = useState("");
-  const [query, setQuery] = useState("");
+
+  function load() {
+    return api<{ reports: ReportMeta[] }>("/admin/api/analytics/reports").then((body) => setReports(body.reports));
+  }
 
   useEffect(() => {
-    api<Summary>("/admin/api/analytics/summary")
-      .then(setSummary)
-      .catch((err) => setError(errorMessage(err, "Could not load analytics")));
-    api<{ reports: ReportMeta[] }>("/admin/api/analytics/reports")
-      .then((body) => {
-        setReports(body.reports);
-        if (body.reports[0]) {
-          setReportKey(body.reports[0].key);
-          setSubmitted(1);
-        }
-      })
-      .catch((err) => setReportError(errorMessage(err, "Could not load reports")));
-    if (admin) {
-      api<{ data: RosterRow[] }>("/admin/api/analytics/roster")
-        .then((body) => setRoster(body.data))
-        .catch((err) => setRosterError(errorMessage(err, "Could not load the roster")));
-    }
-  }, [admin]);
+    load().catch((err) => setError(errorMessage(err, "Could not load reports")));
+  }, []);
+
+  const categories = useMemo(() => {
+    const names = new Set((reports ?? []).map((item) => item.category));
+    return ["All", ...names];
+  }, [reports]);
+
+  const visible = (reports ?? []).filter((item) => {
+    if (category !== "All" && item.category !== category) return false;
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    return `${item.title} ${item.description} ${item.category}`.toLowerCase().includes(needle);
+  });
+
+  const open = reports?.find((item) => item.key === openKey) ?? null;
 
   useEffect(() => {
-    if (!reportKey || submitted === 0) return;
-    const report = reports.find((item) => item.key === reportKey);
-    if (!report) return;
+    if (!openKey || submitted === 0) return;
     let cancelled = false;
     const params = new URLSearchParams();
-    for (const filter of report.filters) {
-      const value = filters[filter.key]?.trim();
-      if (value) params.set(filter.key, value);
+    for (const [key, value] of Object.entries(filters)) {
+      if (value.trim()) params.set(key, value.trim());
     }
     const qs = params.toString();
     setRunning(true);
     setReportError("");
-    api<ReportResult>(`/admin/api/analytics/reports/${reportKey}${qs ? `?${qs}` : ""}`)
+    api<ReportResult>(`/admin/api/analytics/reports/${openKey}${qs ? `?${qs}` : ""}`)
       .then((body) => {
         if (!cancelled) setResult(body);
       })
       .catch((err) => {
         if (!cancelled) {
           setResult(null);
-          setReportError(errorMessage(err, "Could not run the report"));
+          setReportError(errorMessage(err, "Could not open the report"));
         }
       })
       .finally(() => {
@@ -93,193 +92,157 @@ export function AnalyticsPage({ admin }: { admin: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [reportKey, submitted, reports]);
+  }, [openKey, submitted]);
 
-  const report = reports.find((item) => item.key === reportKey) ?? null;
-  const rosterRows = (roster ?? []).filter((row) => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return true;
-    return `${row.first_name ?? ""} ${row.last_name ?? ""} ${row.student_id ?? ""} ${row.year_group_name ?? ""}`.toLowerCase().includes(needle);
-  });
+  function openReport(item: ReportMeta) {
+    setFilters({});
+    setResult(null);
+    setReportError("");
+    setOpenKey(item.key);
+    setSubmitted((value) => value + 1);
+  }
 
   return (
     <section className="stack">
-      <PageHead
-        title="Analytics"
-        lede={admin ? "Roster size, published attendance, and live reports." : "Published attendance and live reports for this school."}
-      />
+      <PageHead title="Data Insights Hub" lede="Reports from the school database. An admin chooses which cards each user can open." />
       <ErrorBanner message={error} onDismiss={() => setError("")} />
-      {!summary ? (
-        <p className="hint" role="status">
-          Loading analytics…
-        </p>
+      {open ? (
+        <ReportView
+          report={open}
+          filters={filters}
+          setFilters={setFilters}
+          running={running}
+          error={reportError}
+          result={result}
+          onBack={() => {
+            setOpenKey("");
+            setResult(null);
+          }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            setSubmitted((value) => value + 1);
+          }}
+        />
       ) : (
         <>
-          <div className="stat-grid">
-            <article className="stat">
-              <span className="label">Students</span>
-              <strong>{formatNumber(summary.student_count)}</strong>
-              <p>A student in several classes is counted once.</p>
-            </article>
-          </div>
-          {summary.attendance_rate_published ? (
-            <div className="banner ok">Attendance rate is published.</div>
-          ) : (
-            <div className="banner info">Attendance rate is not published.</div>
-          )}
-          <div className="panel">
-            <h2>Attendance by day</h2>
-            {summary.attendance.length === 0 ? (
-              <Empty>No attendance has been published.</Empty>
-            ) : (
-              <div className="table-wrap flat">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th>Records</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.attendance.map((row) => (
-                      <tr key={`${row.business_date}-${row.attendance_type}-${row.status}`}>
-                        <td>{row.business_date}</td>
-                        <td>{titleCaseToken(row.attendance_type)}</td>
-                        <td>{titleCaseToken(row.status)}</td>
-                        <td>{formatNumber(row.record_count)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      <div className="panel stack">
-        <h2>Reports</h2>
-        <ErrorBanner message={reportError} onDismiss={() => setReportError("")} />
-        {reports.length === 0 ? (
-          <p className="hint">Loading reports…</p>
-        ) : (
-          <>
-            <div className="report-tabs" role="tablist">
-              {reports.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={item.key === reportKey ? "active" : ""}
-                  onClick={() => {
-                    setFilters({});
-                    setReportKey(item.key);
-                    setSubmitted((value) => value + 1);
-                  }}
-                >
-                  {item.title}
+          <label className="field hub-search">
+            Search reports
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search reports, for example attendance" />
+          </label>
+          {reports && reports.length > 0 ? (
+            <div className="hub-cats" role="tablist" aria-label="Report categories">
+              {categories.map((item) => (
+                <button key={item} type="button" className={item === category ? "active" : ""} onClick={() => setCategory(item)}>
+                  {item}
                 </button>
               ))}
             </div>
-            {report ? <p className="hint">{report.description}</p> : null}
-            {report ? (
-              <form
-                className="filters"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  setSubmitted((value) => value + 1);
-                }}
-              >
-                {report.filters.map((filter) => (
-                  <label key={filter.key} className="field">
-                    {filter.label}
-                    <input
-                      type={filter.kind === "date" ? "date" : "text"}
-                      value={filters[filter.key] ?? ""}
-                      onChange={(event) => setFilters((current) => ({ ...current, [filter.key]: event.target.value }))}
-                    />
-                  </label>
-                ))}
-                <button type="submit" className="primary" disabled={running}>
-                  {running ? "Running…" : "Run report"}
+          ) : null}
+          {reports === null ? (
+            <p className="hint" role="status">
+              Loading reports…
+            </p>
+          ) : reports.length === 0 ? (
+            <Empty>No reports are assigned to this account yet. An admin can assign them on Accounts.</Empty>
+          ) : visible.length === 0 ? (
+            <Empty>No reports match that search.</Empty>
+          ) : (
+            <div className="hub-grid">
+              {visible.map((item) => (
+                <button key={item.key} type="button" className={`hub-card cat-${item.category.toLowerCase()}`} onClick={() => openReport(item)}>
+                  <span className="hub-cat">{item.category}</span>
+                  <strong>{item.title}</strong>
+                  <p>{item.description}</p>
+                  <span className="hub-open">Open report</span>
+                  <footer>{freshnessLine(item)}</footer>
                 </button>
-              </form>
-            ) : null}
-            {result && result.report.key === reportKey ? (
-              <>
-                {result.meta.returned_count >= 500 ? <p className="hint">Showing the first 500 rows. Narrow the filters to see a shorter list.</p> : null}
-                {result.data.length === 0 ? (
-                  <Empty>No rows match these filters.</Empty>
-                ) : (
-                  <div className="table-wrap flat">
-                    <table>
-                      <thead>
-                        <tr>
-                          {result.report.columns.map((column) => (
-                            <th key={column.key}>{column.label}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.data.map((row, index) => (
-                          <tr key={index}>
-                            {result.report.columns.map((column) => (
-                              <td key={column.key}>{displayCell(column.key, row[column.key])}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
-            ) : running ? (
-              <p className="hint">Running the report…</p>
-            ) : null}
-          </>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
 
-      {admin ? (
-        <div className="panel stack">
-          <h2>Roster</h2>
-          <p className="hint">Names stay on this page. The list shows up to 200 students.</p>
-          <ErrorBanner message={rosterError} />
-          <label className="field">
-            Search
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, student ID, or year group" />
+function ReportView({
+  report,
+  filters,
+  setFilters,
+  running,
+  error,
+  result,
+  onBack,
+  onSubmit,
+}: {
+  report: ReportMeta;
+  filters: Record<string, string>;
+  setFilters: (value: Record<string, string> | ((current: Record<string, string>) => Record<string, string>)) => void;
+  running: boolean;
+  error: string;
+  result: ReportResult | null;
+  onBack: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <div className="panel stack">
+      <div className="page-head">
+        <div>
+          <button type="button" className="ghost" onClick={onBack}>
+            All reports
+          </button>
+          <h2>{report.title}</h2>
+          <p className="hint">{report.description}</p>
+          <p className="hint">{freshnessLine(report)}</p>
+        </div>
+      </div>
+      <ErrorBanner message={error} />
+      <form className="filters" onSubmit={onSubmit}>
+        {report.filters.map((filter) => (
+          <label key={filter.key} className="field">
+            {filter.label}
+            <input
+              type={filter.kind === "date" ? "date" : "text"}
+              value={filters[filter.key] ?? ""}
+              onChange={(event) => setFilters((current) => ({ ...current, [filter.key]: event.target.value }))}
+            />
           </label>
-          {roster === null && !rosterError ? (
-            <p className="hint">Loading the roster…</p>
-          ) : roster && rosterRows.length === 0 ? (
-            <Empty>{roster.length === 0 ? "No students are in the roster yet." : "No students match that search."}</Empty>
-          ) : roster ? (
+        ))}
+        <button type="submit" className="primary" disabled={running}>
+          {running ? "Running…" : "Run report"}
+        </button>
+      </form>
+      {result && result.report.key === report.key ? (
+        <>
+          {result.meta.returned_count >= 500 ? <p className="hint">Showing the first 500 rows. Narrow the filters to see a shorter list.</p> : null}
+          {result.data.length === 0 ? (
+            <Empty>No rows match these filters.</Empty>
+          ) : (
             <div className="table-wrap flat">
               <table>
                 <thead>
                   <tr>
-                    <th>Student</th>
-                    <th>Student ID</th>
-                    <th>Year group</th>
-                    <th>Status</th>
+                    {result.report.columns.map((column) => (
+                      <th key={column.key}>{column.label}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {rosterRows.map((row) => (
-                    <tr key={row.mb_id}>
-                      <td>{`${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "—"}</td>
-                      <td>{row.student_id || "—"}</td>
-                      <td>{row.year_group_name || "—"}</td>
-                      <td>{titleCaseToken(row.status)}</td>
+                  {result.data.map((row, index) => (
+                    <tr key={index}>
+                      {result.report.columns.map((column) => (
+                        <td key={column.key}>{displayCell(column.key, row[column.key])}</td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : null}
-        </div>
+          )}
+        </>
+      ) : running ? (
+        <p className="hint">Running the report…</p>
       ) : null}
-    </section>
+    </div>
   );
 }

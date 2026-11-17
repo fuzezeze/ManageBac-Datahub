@@ -23,11 +23,12 @@ from hub.models import (
     ConnectionCheck,
     DatasetSyncState,
     QualityIssue,
+    ReportGrant,
     SyncAttempt,
     SyncJob,
     SyncSchedule,
 )
-from hub.reports import REPORTS, ReportError, list_reports, run_report
+from hub.reports import ReportError, can_run, list_reports, ordered_keys, run_report, set_report_grants, visible_reports
 from hub.scheduler import ensure_schedules
 from hub.secrets import hash_password, hash_secret, new_api_key, new_session_token, verify_password
 from hub.timeutil import utcnow
@@ -602,7 +603,17 @@ def users(request: Request):
         return error
     try:
         rows = session.scalars(select(AdminUser).order_by(AdminUser.created_at)).all()
-        return _json({"data": [_account(row) for row in rows], "roles": ["admin", "user"]})
+        grants = session.scalars(select(ReportGrant)).all()
+        by_admin: dict = {}
+        for grant in grants:
+            by_admin.setdefault(grant.admin_id, set()).add(grant.report_key)
+        return _json(
+            {
+                "data": [_account(row, by_admin.get(row.id, set())) for row in rows],
+                "roles": ["admin", "user"],
+                "reports": list_reports(),
+            }
+        )
     finally:
         session.close()
 
@@ -629,7 +640,7 @@ def create_user(payload: dict, request: Request):
         session.flush()
         _audit(session, user, "create_user", email, {"role": ACCOUNT_ROLES[role]})
         session.commit()
-        return _json({"user": _account(account)})
+        return _json({"user": _account(account, [])})
     finally:
         session.close()
 
@@ -660,9 +671,22 @@ def update_user(user_id: UUID, payload: dict, request: Request):
             if len(password) < 8:
                 return _error(400, "PASSWORD_REQUIRED", "Password must be at least 8 characters")
             account.password_hash = hash_password(password)
-        _audit(session, actor, "update_user", account.email, {"role": ACCOUNT_ROLES.get(account.role, account.role), "disabled": account.disabled})
+        report_keys = None
+        if "reports" in payload:
+            try:
+                report_keys = set_report_grants(session, account.id, actor.id, payload.get("reports"))
+            except ReportError as exc:
+                session.rollback()
+                return _error(400, "REPORT_UNKNOWN", str(exc))
+        details = {"role": ACCOUNT_ROLES.get(account.role, account.role), "disabled": account.disabled}
+        if report_keys is not None:
+            details["reports"] = report_keys
+        _audit(session, actor, "update_user", account.email, details)
         session.commit()
-        return _json({"user": _account(account)})
+        assigned = report_keys if report_keys is not None else ordered_keys(
+            session.scalars(select(ReportGrant.report_key).where(ReportGrant.admin_id == account.id)).all()
+        )
+        return _json({"user": _account(account, assigned)})
     finally:
         session.close()
 
@@ -811,21 +835,26 @@ def usage(request: Request):
 
 @router.get("/analytics/reports")
 def analytics_reports(request: Request):
-    session, _user, error = _require(request, SIGNED_IN)
+    session, user, error = _require(request, SIGNED_IN)
     if error is not None:
         return error
-    session.close()
-    return _json({"reports": list_reports()})
+    try:
+        return _json({"reports": visible_reports(session, user.role, user.id)})
+    finally:
+        session.close()
 
 
 @router.get("/analytics/reports/{report_key}")
 def analytics_report(report_key: str, request: Request):
-    session, _user, error = _require(request, SIGNED_IN)
+    session, user, error = _require(request, SIGNED_IN)
     if error is not None:
         return error
     try:
-        if report_key not in REPORTS:
+        access = can_run(session, user.role, user.id, report_key)
+        if access == "missing":
             return _error(404, "REPORT_UNKNOWN", "Unknown report")
+        if access == "forbidden":
+            return _error(403, "FORBIDDEN", "This account cannot open that report")
         try:
             return _json(run_report(session, report_key, dict(request.query_params)))
         except ReportError as exc:
@@ -964,12 +993,13 @@ def _account_role(value) -> str | None:
     return None
 
 
-def _account(account: AdminUser) -> dict:
+def _account(account: AdminUser, report_keys=()) -> dict:
     return {
         "id": str(account.id),
         "email": account.email,
         "role": ACCOUNT_ROLES.get(account.role, account.role),
         "disabled": account.disabled,
+        "reports": ordered_keys(report_keys),
     }
 
 
