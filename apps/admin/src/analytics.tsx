@@ -186,11 +186,13 @@ function ReportView({
 }) {
   return (
     <div className="panel stack">
+      <div className="report-back">
+        <button type="button" className="secondary" onClick={onBack}>
+          Back to Insights
+        </button>
+      </div>
       <div className="page-head">
         <div>
-          <button type="button" className="ghost" onClick={onBack}>
-            All reports
-          </button>
           <h2>{report.title}</h2>
           <p className="hint">{report.description}</p>
           <p className="hint">{freshnessLine(report)}</p>

@@ -317,6 +317,7 @@ td.actions { white-space: nowrap; }
 .hub-cat { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--blue); }
 .hub-card.cat-attendance .hub-cat { color: var(--ok); }
 .hub-card.cat-teaching .hub-cat { color: #9a5b16; }
+.report-back { display: flex; }
 .hub-open { margin-top: auto; font-weight: 700; color: var(--blue); }
 .hub-card footer { color: var(--muted); font-size: 0.78rem; line-height: 1.35; }
 .report-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; }
