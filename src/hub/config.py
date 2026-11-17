@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     attendance_freshness_hours: int = 6
     strict_freshness: bool = False
 
+    # None keeps the rows permanently. The school chose not to expire raw responses or audit logs.
     raw_retention_days: int | None = None
     audit_retention_days: int | None = None
 

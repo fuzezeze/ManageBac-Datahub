@@ -34,4 +34,4 @@ Use RDS automated backup and point-in-time recovery. Restoring an old snapshot c
 
 ## Retention
 
-`RAW_RETENTION_DAYS` and `AUDIT_RETENTION_DAYS` stay empty until the school sets them. Empty means nothing is deleted.
+The school keeps every row. Leave `RAW_RETENTION_DAYS` and `AUDIT_RETENTION_DAYS` empty. A number would delete raw API responses, or internal API request logs and usage buckets, older than that many days. Students, classes, and attendance are not part of that deletion.
