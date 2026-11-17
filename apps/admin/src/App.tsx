@@ -144,7 +144,6 @@ function Login({ onSuccess }: { onSuccess: (session: Session) => void }) {
       <div className="signin-stage">
         <form className="card" onSubmit={submit}>
           <h1>Sign in</h1>
-          <p className="card-note">Use your admin email and password for this workspace.</p>
           <label>
             Email
             <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />

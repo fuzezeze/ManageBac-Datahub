@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "./api";
-import { errorMessage, roleLabel } from "./format";
+import { errorMessage } from "./format";
 import { Dialog, Empty, ErrorBanner, PageHead, Pill } from "./ui";
 
 type CatalogReport = { key: string; title: string; description: string; category: string };
@@ -57,7 +57,7 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
 
   return (
     <section className="stack">
-      <PageHead title="Accounts" lede="Admins see the full console. Users see only the reports assigned here." />
+      <PageHead title="Accounts" />
       <ErrorBanner message={error} onDismiss={() => setError("")} />
       <form className="panel form-grid" onSubmit={create}>
         <h2>New account</h2>
@@ -73,8 +73,8 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
           <label className="field">
             Role
             <select value={role} onChange={(event) => setRole(event.target.value)}>
-              <option value="user">User — analytics only</option>
-              <option value="admin">Admin — full console</option>
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
             </select>
           </label>
         </div>
@@ -180,7 +180,6 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
           }}
         />
       ) : null}
-      <p className="hint">Role labels: {roleLabel("platform_admin")} sees every page and every report. {roleLabel("user")} sees Insights only, and only the reports chosen here.</p>
     </section>
   );
 }
@@ -222,7 +221,6 @@ function ReportDialog({
   return (
     <Dialog title={`Reports for ${email}`} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
-        <p className="hint">This user sees a card only for the reports checked here.</p>
         {categories.map((category) => (
           <fieldset key={category} className="api-picker">
             <legend>{category}</legend>
@@ -231,10 +229,7 @@ function ReportDialog({
               .map((item) => (
                 <label key={item.key} className="check">
                   <input type="checkbox" checked={chosen.includes(item.key)} onChange={() => toggle(item.key)} />
-                  <span>
-                    {item.title}
-                    <small>{item.description}</small>
-                  </span>
+                  <span>{item.title}</span>
                 </label>
               ))}
           </fieldset>

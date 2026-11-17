@@ -49,7 +49,7 @@ export function AuditPage({ zone }: { zone: string }) {
 
   return (
     <section className="stack">
-      <PageHead title="Audit" lede="Recent Internal API requests. The log keeps the newest 200 rows.">
+      <PageHead title="Audit">
         <label className="field inline">
           Client
           <select value={clientId} onChange={(event) => setClientId(event.target.value)}>

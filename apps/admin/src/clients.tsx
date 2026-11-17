@@ -180,7 +180,7 @@ export function ClientsPage({ zone }: { zone: string }) {
 
   return (
     <section className="stack">
-      <PageHead title="API clients" lede="Issue read keys, choose which fields a school system can see, and set quotas.">
+      <PageHead title="API clients">
         <button type="button" className="primary" onClick={() => setEditing("new")} disabled={!catalog}>
           Create a read client
         </button>
@@ -222,9 +222,7 @@ export function ClientsPage({ zone }: { zone: string }) {
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p className="hint">All fields are returned for the granted APIs.</p>
-              )}
+              ) : null}
               <div className="cred-list">
                 {client.credentials.map((credential) => (
                   <div key={credential.id} className="cred">
@@ -376,7 +374,6 @@ function ClientDialog({
         </label>
         <fieldset className="api-picker">
           <legend>APIs</legend>
-          <p className="hint">Leave a field limit off to return every field. Email is included with the full student or teacher payload.</p>
           {apis.map((item) => (
             <div key={item.name} className="api-block">
               <label className="check">

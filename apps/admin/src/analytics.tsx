@@ -61,7 +61,7 @@ export function AnalyticsPage() {
     if (category !== "All" && item.category !== category) return false;
     const needle = query.trim().toLowerCase();
     if (!needle) return true;
-    return `${item.title} ${item.description} ${item.category}`.toLowerCase().includes(needle);
+    return `${item.title} ${item.category}`.toLowerCase().includes(needle);
   });
 
   const open = reports?.find((item) => item.key === openKey) ?? null;
@@ -104,7 +104,7 @@ export function AnalyticsPage() {
 
   return (
     <section className="stack">
-      <PageHead title="Data Insights Hub" lede="Reports from the school database. An admin chooses which cards each user can open." />
+      <PageHead title="Data Insights Hub" />
       <ErrorBanner message={error} onDismiss={() => setError("")} />
       {open ? (
         <ReportView
@@ -152,7 +152,6 @@ export function AnalyticsPage() {
                 <button key={item.key} type="button" className={`hub-card cat-${item.category.toLowerCase()}`} onClick={() => openReport(item)}>
                   <span className="hub-cat">{item.category}</span>
                   <strong>{item.title}</strong>
-                  <p>{item.description}</p>
                   <span className="hub-open">Open report</span>
                   <footer>{freshnessLine(item)}</footer>
                 </button>
@@ -194,7 +193,6 @@ function ReportView({
       <div className="page-head">
         <div>
           <h2>{report.title}</h2>
-          <p className="hint">{report.description}</p>
           <p className="hint">{freshnessLine(report)}</p>
         </div>
       </div>
@@ -216,7 +214,6 @@ function ReportView({
       </form>
       {result && result.report.key === report.key ? (
         <>
-          {result.meta.returned_count >= 500 ? <p className="hint">Showing the first 500 rows. Narrow the filters to see a shorter list.</p> : null}
           {result.data.length === 0 ? (
             <Empty>No rows match these filters.</Empty>
           ) : (

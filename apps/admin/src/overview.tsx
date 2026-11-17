@@ -85,7 +85,7 @@ export function OverviewPage({ zone, onZone }: { zone: string; onZone: (zone: st
 
   return (
     <section className="stack">
-      <PageHead title="Overview" lede={`Sync health, connection, and open alerts. Times use ${timeZone}.`}>
+      <PageHead title="Overview">
         <button type="button" className="secondary" onClick={() => load()} disabled={refreshing}>
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
@@ -97,12 +97,6 @@ export function OverviewPage({ zone, onZone }: { zone: string; onZone: (zone: st
         </p>
       ) : (
         <>
-          {!data.school_timezone_confirmed && (
-            <div className="banner warn">School timezone is not confirmed. Current value: {data.school_timezone}.</div>
-          )}
-          {!data.retention_configured && (
-            <div className="banner info">Retention is not approved, so raw responses and audit rows are kept.</div>
-          )}
           <div className="stat-grid">
             <article className={`stat ${data.connection ? (data.connection.ok ? "good" : "bad") : ""}`}>
               <span className="label">ManageBac</span>
@@ -127,7 +121,7 @@ export function OverviewPage({ zone, onZone }: { zone: string; onZone: (zone: st
             <article className={`stat ${openAlerts.length ? "bad" : "good"}`}>
               <span className="label">Alerts</span>
               <strong>{alerts ? (openAlerts.length ? `${openAlerts.length} open` : "None open") : "—"}</strong>
-              <p>{alertError || "Acknowledge an alert once it has been handled."}</p>
+              {alertError ? <p>{alertError}</p> : null}
             </article>
             <article className="stat">
               <span className="label">Last success</span>
@@ -188,9 +182,6 @@ export function OverviewPage({ zone, onZone }: { zone: string; onZone: (zone: st
               </tbody>
             </table>
           </div>
-          <p className="hint">
-            Healthy means the last success is inside the freshness window: 30 minutes for the connection check, 6 hours for attendance, and 36 hours for everything else. Stale also covers a later attempt that failed after an earlier success.
-          </p>
         </>
       )}
       {data && data.datasets.length === 0 ? <Empty>No datasets are configured.</Empty> : null}
