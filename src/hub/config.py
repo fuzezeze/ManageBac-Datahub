@@ -10,8 +10,8 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     school_id: str = "school"
-    school_timezone: str = "UTC"
-    school_timezone_confirmed: bool = False
+    school_timezone: str = "Asia/Hong_Kong"
+    school_timezone_confirmed: bool = True
     cursor_secret: str = Field(min_length=16)
 
     database_url_migrate: str

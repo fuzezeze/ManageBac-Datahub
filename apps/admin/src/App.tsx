@@ -28,7 +28,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [page, setPage] = useState<Page>("overview");
-  const [zone, setZone] = useState("UTC");
+  const [zone, setZone] = useState("Asia/Hong_Kong");
   const [logoutError, setLogoutError] = useState("");
 
   function enter(next: Session) {

@@ -44,7 +44,7 @@ export function OverviewPage({ zone, onZone }: { zone: string; onZone: (zone: st
     try {
       const overview = await overviewPromise;
       setData(overview);
-      onZone(overview.school_timezone || "UTC");
+      onZone(overview.school_timezone || "Asia/Hong_Kong");
     } catch (err) {
       setError(errorMessage(err, "Could not load the overview"));
     }
@@ -71,7 +71,7 @@ export function OverviewPage({ zone, onZone }: { zone: string; onZone: (zone: st
     }
   }
 
-  const timeZone = data?.school_timezone || zone;
+  const timeZone = data?.school_timezone || zone || "Asia/Hong_Kong";
   const openAlerts = (alerts ?? []).filter((alert) => alert.status === "open");
   const tones = (data?.datasets ?? []).map((row) => datasetTone(row));
   const healthy = tones.filter((tone) => tone.tone === "ok").length;
