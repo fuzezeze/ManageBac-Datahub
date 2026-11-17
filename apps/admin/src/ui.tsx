@@ -5,12 +5,11 @@ export function Pill({ tone, children }: { tone: PillTone; children: ReactNode }
   return <span className={`pill ${tone}`}>{children}</span>;
 }
 
-export function PageHead({ title, lede, children }: { title: string; lede: string; children?: ReactNode }) {
+export function PageHead({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <header className="page-head">
       <div>
         <h1>{title}</h1>
-        <p className="page-lede">{lede}</p>
       </div>
       {children ? <div className="page-actions">{children}</div> : null}
     </header>

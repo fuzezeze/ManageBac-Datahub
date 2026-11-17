@@ -7,6 +7,7 @@ application users are created by scripts/init-mysql.sql before this runs.
 from alembic import op
 from sqlalchemy import text
 
+from hub.analytics_views import REPORT_VIEW_NAMES, REPORT_VIEWS
 from hub.models import Base
 
 revision = "0001_initial"
@@ -106,6 +107,7 @@ VIEWS = [
     FROM hub_ops.api_usage_buckets
     WHERE bucket_size = 'day'
     """,
+    *REPORT_VIEWS,
 ]
 
 
@@ -146,6 +148,7 @@ def _grants() -> list[str]:
         "alerts",
         "admins",
         "admin_sessions",
+        "report_grants",
     )
     statements = [
         "REVOKE ALL PRIVILEGES ON hub_ops.* FROM 'hub_admin'@'%'",
@@ -208,6 +211,7 @@ def downgrade() -> None:
         "v_behavior_notes",
         "v_sync_dataset_status",
         "v_api_usage_daily",
+        *REPORT_VIEW_NAMES,
     ):
         bind.execute(text(f"DROP VIEW IF EXISTS hub_analytics.{name}"))
     Base.metadata.drop_all(bind)

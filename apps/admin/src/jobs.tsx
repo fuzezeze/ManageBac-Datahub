@@ -152,7 +152,7 @@ export function JobsPage({ zone }: { zone: string }) {
 
   return (
     <section className="stack">
-      <PageHead title="Jobs" lede={`Queue a sync and review each run. Schedule times use ${zone}.`}>
+      <PageHead title="Jobs">
         <button type="button" className="primary" onClick={() => setQueueOpen(true)} disabled={runnable.length === 0}>
           Queue sync
         </button>
@@ -226,7 +226,6 @@ export function JobsPage({ zone }: { zone: string }) {
 
       <div className="panel">
         <h2>Schedule</h2>
-        <p className="hint">Automatic syncs run in the school timezone. Attendance jobs include the lookback window when the scheduler queues them.</p>
         <div className="table-wrap flat">
           <table>
             <thead>
@@ -427,9 +426,7 @@ function QueueDialog({
               <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} required />
             </label>
           </div>
-        ) : (
-          <p className="hint">This dataset syncs the full current snapshot.</p>
-        )}
+        ) : null}
         <ErrorBanner message={error} />
         <button type="submit" className="primary" disabled={busy || !dataset}>
           {busy ? "Queuing…" : "Queue sync"}

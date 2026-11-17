@@ -1,22 +1,26 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "./api";
-import { errorMessage, roleLabel } from "./format";
+import { errorMessage } from "./format";
 import { Dialog, Empty, ErrorBanner, PageHead, Pill } from "./ui";
 
-type Account = { id: string; email: string; role: string; disabled: boolean };
+type CatalogReport = { key: string; title: string; description: string; category: string };
+type Account = { id: string; email: string; role: string; disabled: boolean; reports: string[] };
 
 export function AccountsPage({ currentEmail }: { currentEmail: string }) {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
+  const [catalog, setCatalog] = useState<CatalogReport[]>([]);
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("user");
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState<Account | null>(null);
+  const [granting, setGranting] = useState<Account | null>(null);
 
   async function load() {
-    const body = await api<{ data: Account[] }>("/admin/api/users");
+    const body = await api<{ data: Account[]; reports: CatalogReport[] }>("/admin/api/users");
     setAccounts(body.data);
+    setCatalog(body.reports);
   }
 
   useEffect(() => {
@@ -40,7 +44,7 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
     }
   }
 
-  async function update(account: Account, patch: Record<string, string | boolean>) {
+  async function update(account: Account, patch: Record<string, string | boolean | string[]>) {
     setError("");
     try {
       await api(`/admin/api/users/${account.id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -53,7 +57,7 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
 
   return (
     <section className="stack">
-      <PageHead title="Accounts" lede="Admins see the full console. Users only see Analytics." />
+      <PageHead title="Accounts" />
       <ErrorBanner message={error} onDismiss={() => setError("")} />
       <form className="panel form-grid" onSubmit={create}>
         <h2>New account</h2>
@@ -69,8 +73,8 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
           <label className="field">
             Role
             <select value={role} onChange={(event) => setRole(event.target.value)}>
-              <option value="user">User — analytics only</option>
-              <option value="admin">Admin — full console</option>
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
             </select>
           </label>
         </div>
@@ -84,6 +88,7 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
             <tr>
               <th>Email</th>
               <th>Role</th>
+              <th>Reports</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -91,13 +96,13 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
           <tbody>
             {accounts === null ? (
               <tr>
-                <td colSpan={4} className="empty">
+                <td colSpan={5} className="empty">
                   Loading accounts…
                 </td>
               </tr>
             ) : accounts.length === 0 ? (
               <tr>
-                <td colSpan={4}>
+                <td colSpan={5}>
                   <Empty>No accounts yet.</Empty>
                 </td>
               </tr>
@@ -117,8 +122,28 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
                         <option value="user">User</option>
                       </select>
                     </td>
+                    <td>
+                      {account.role === "admin" ? (
+                        "All reports"
+                      ) : account.reports.length === 0 ? (
+                        "None"
+                      ) : (
+                        <span className="chips">
+                          {account.reports.map((key) => (
+                            <span key={key} className="chip">
+                              {catalog.find((item) => item.key === key)?.title ?? key}
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                    </td>
                     <td>{account.disabled ? <Pill tone="failed">Disabled</Pill> : <Pill tone="ok">Active</Pill>}</td>
                     <td className="actions">
+                      {account.role === "user" ? (
+                        <button type="button" className="ghost" onClick={() => setGranting(account)}>
+                          Choose reports
+                        </button>
+                      ) : null}
                       <button type="button" className="ghost" disabled={self} onClick={() => update(account, { disabled: !account.disabled })}>
                         {account.disabled ? "Enable" : "Disable"}
                       </button>
@@ -133,6 +158,18 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
           </tbody>
         </table>
       </div>
+      {granting ? (
+        <ReportDialog
+          email={granting.email}
+          catalog={catalog}
+          selected={granting.reports}
+          onClose={() => setGranting(null)}
+          onSave={async (reports) => {
+            await update(granting, { reports });
+            setGranting(null);
+          }}
+        />
+      ) : null}
       {resetting ? (
         <PasswordDialog
           email={resetting.email}
@@ -143,8 +180,66 @@ export function AccountsPage({ currentEmail }: { currentEmail: string }) {
           }}
         />
       ) : null}
-      <p className="hint">Role labels: {roleLabel("platform_admin")} sees every page. {roleLabel("user")} sees Analytics only.</p>
     </section>
+  );
+}
+
+function ReportDialog({
+  email,
+  catalog,
+  selected,
+  onClose,
+  onSave,
+}: {
+  email: string;
+  catalog: CatalogReport[];
+  selected: string[];
+  onClose: () => void;
+  onSave: (reports: string[]) => Promise<void>;
+}) {
+  const [chosen, setChosen] = useState<string[]>(selected);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const categories = [...new Set(catalog.map((item) => item.category))];
+
+  function toggle(key: string) {
+    setChosen((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await onSave(chosen);
+    } catch (err) {
+      setError(errorMessage(err, "Could not save the reports"));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog title={`Reports for ${email}`} onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        {categories.map((category) => (
+          <fieldset key={category} className="api-picker">
+            <legend>{category}</legend>
+            {catalog
+              .filter((item) => item.category === category)
+              .map((item) => (
+                <label key={item.key} className="check">
+                  <input type="checkbox" checked={chosen.includes(item.key)} onChange={() => toggle(item.key)} />
+                  <span>{item.title}</span>
+                </label>
+              ))}
+          </fieldset>
+        ))}
+        <ErrorBanner message={error} />
+        <button type="submit" className="primary" disabled={busy}>
+          {busy ? "Saving…" : "Save reports"}
+        </button>
+      </form>
+    </Dialog>
   );
 }
 

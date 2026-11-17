@@ -43,13 +43,13 @@ These are configuration, not guessed production facts:
 
 - ManageBac base URL (`api.managebac.com` or `api.managebac.cn`) and whether the token is OAuth or `auth-token`
 - API prefix, default `/v2p3`
-- Confirmed IANA timezone (`SCHOOL_TIMEZONE_CONFIRMED=true` only after the school confirms it)
 - Attendance history start, status-code list, and which of homeroom or class attendance is enabled
-- Retention days. Empty means the app does not delete
 - Admin OIDC issuer. Local password is the stand-in until that exists
 - RDS account, region, and the CA bundle in `DATABASE_SSL_CA`
 
 `courses` stays blocked. The public API has subjects and classes, not an independent course resource, and this hub does not invent one.
+
+Raw API responses, internal API logs, and the school records stay permanently. Leave `RAW_RETENTION_DAYS` and `AUDIT_RETENTION_DAYS` empty.
 
 ## RDS MySQL
 
